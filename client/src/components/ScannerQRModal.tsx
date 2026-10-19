@@ -18,8 +18,24 @@ export const ScannerQRModal: React.FC<ScannerQRModalProps> = ({ isOpen, onClose,
     if (isOpen) {
       setLoading(true);
       api.getScannerInfo()
-        .then((info) => setNetworkInfo(info))
-        .catch((err) => console.error('Failed to load scanner network info:', err))
+        .then((info) => {
+          // If on live hosted domain, guarantee scannerUrl uses current window origin
+          if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+            info.scannerUrl = `${window.location.origin}/scanner`;
+          }
+          setNetworkInfo(info);
+        })
+        .catch((err) => {
+          console.error('Failed to load scanner network info:', err);
+          // Fallback scanner URL based on current live domain
+          setNetworkInfo({
+            lanIp: window.location.hostname,
+            serverPort: window.location.port ? parseInt(window.location.port, 10) : 443,
+            clientPort: window.location.port ? parseInt(window.location.port, 10) : 443,
+            scannerUrl: `${window.location.origin}/scanner`,
+            qrDataUrl: '',
+          });
+        })
         .finally(() => setLoading(false));
     }
   }, [isOpen]);
