@@ -15,6 +15,8 @@ router.get('/scanner-info', async (req: Request, res: Response) => {
     const hostHeader = req.get('host') || '';
     const isPublicDomain = hostHeader && !hostHeader.includes('localhost') && !hostHeader.includes('127.0.0.1');
 
+    const clientPort = process.env.CLIENT_PORT || 5173;
+
     let scannerUrl = '';
     if (isPublicDomain) {
       // Use the live public domain (e.g. https://snow-zebra-536121.hostingersite.com/scanner)
@@ -22,7 +24,6 @@ router.get('/scanner-info', async (req: Request, res: Response) => {
       scannerUrl = `${protocol}://${hostHeader}/scanner`;
     } else {
       // Local development over Wi-Fi
-      const clientPort = process.env.CLIENT_PORT || 5173;
       scannerUrl = `https://${lanIp}:${clientPort}/scanner`;
     }
 
