@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { X, Smartphone, Wifi, Copy, Check, ExternalLink } from 'lucide-react';
 import { api } from '../services/api';
 import { NetworkInfo } from '../types';
@@ -86,16 +87,17 @@ export const ScannerQRModal: React.FC<ScannerQRModalProps> = ({ isOpen, onClose,
             <div>
               <div style={{
                 display: 'inline-block',
-                padding: '12px',
+                padding: '16px',
                 background: '#ffffff',
                 borderRadius: '16px',
                 boxShadow: '0 8px 24px rgba(0, 0, 0, 0.3)',
                 marginBottom: '1rem',
               }}>
-                <img
-                  src={networkInfo.qrDataUrl}
-                  alt="Scanner Pairing QR Code"
-                  style={{ width: '210px', height: '210px', display: 'block' }}
+                <QRCodeSVG
+                  value={networkInfo.scannerUrl || `${window.location.origin}/scanner`}
+                  size={210}
+                  level="M"
+                  includeMargin={false}
                 />
               </div>
 
