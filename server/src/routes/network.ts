@@ -11,10 +11,9 @@ router.get('/scanner-info', async (_req: Request, res: Response) => {
     const port = process.env.PORT || 5000;
     
     // In dev mode, client is usually on 5173, while backend is on 5000.
-    // If client is served from express (production), client port is the same as server port.
-    // We check origin or default to 5173 for dev
+    // Mobile cameras require HTTPS for getUserMedia camera access over LAN
     const clientPort = process.env.CLIENT_PORT || 5173;
-    const scannerUrl = `http://${lanIp}:${clientPort}/scanner`;
+    const scannerUrl = `https://${lanIp}:${clientPort}/scanner`;
 
     const qrDataUrl = await QRCode.toDataURL(scannerUrl, {
       width: 256,

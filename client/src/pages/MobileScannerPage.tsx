@@ -10,7 +10,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Keyboard,
-  Zap,
+  ShieldAlert,
+  RefreshCw,
 } from 'lucide-react';
 import { socket, joinPosSession } from '../services/socket';
 import { playBeepSuccess, playBeepError, triggerHaptic } from '../utils/audio';
@@ -18,6 +19,7 @@ import { playBeepSuccess, playBeepError, triggerHaptic } from '../utils/audio';
 export const MobileScannerPage: React.FC = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
   const [lastScanned, setLastScanned] = useState<{
     code: string;
     productName?: string;
@@ -31,13 +33,18 @@ export const MobileScannerPage: React.FC = () => {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [manualCode, setManualCode] = useState('');
   const [showManualInput, setShowManualInput] = useState(false);
+  const [isSecure, setIsSecure] = useState(true);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const lastScannedTimeRef = useRef<number>(0);
   const lastScannedCodeRef = useRef<string>('');
 
   useEffect(() => {
-    // Join POS session
+    // Check if browser context is secure (HTTPS or localhost)
+    if (typeof window !== 'undefined' && !window.isSecureContext) {
+      setIsSecure(false);
+    }
+
     joinPosSession();
 
     const handleConnect = () => setIsConnected(true);
@@ -46,6 +53,7 @@ export const MobileScannerPage: React.FC = () => {
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
 
+    // Auto-attempt camera start
     startCamera();
 
     return () => {
@@ -58,28 +66,51 @@ export const MobileScannerPage: React.FC = () => {
   const startCamera = async () => {
     try {
       setCameraError(null);
+
+      // Verify browser support for mediaDevices
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setCameraError(
+          'Camera API is disabled by the browser on insecure HTTP. Please open this page via HTTPS (e.g. https://' +
+            window.location.host +
+            window.location.pathname +
+            ')'
+        );
+        return;
+      }
+
+      if (scannerRef.current) {
+        try {
+          await scannerRef.current.stop();
+        } catch {
+          // ignore
+        }
+      }
+
       const scanner = new Html5Qrcode('qr-reader');
       scannerRef.current = scanner;
 
       const config = {
         fps: 15,
-        qrbox: { width: 280, height: 180 },
+        qrbox: { width: 260, height: 160 },
         aspectRatio: 1.0,
       };
 
       await scanner.start(
-        { facingMode: 'environment' }, // Back camera
+        { facingMode: 'environment' }, // Back camera preferred
         config,
         (decodedText) => handleBarcodeDetected(decodedText),
-        () => {} // Ignore scan frame misses
+        () => {} // Frame scan misses ignored
       );
 
+      setCameraActive(true);
       setIsScanning(true);
       setIsPaused(false);
     } catch (err: any) {
       console.error('Camera start error:', err);
+      setCameraActive(false);
       setCameraError(
-        err.message || 'Camera permission denied or camera not accessible. Ensure HTTPS or localhost is used.'
+        err.message ||
+          'Camera permission was denied. Tap the button below to grant camera access or check your browser site settings.'
       );
     }
   };
@@ -93,6 +124,7 @@ export const MobileScannerPage: React.FC = () => {
         console.warn('Camera stop error:', e);
       }
     }
+    setCameraActive(false);
     setIsScanning(false);
   };
 
@@ -108,20 +140,20 @@ export const MobileScannerPage: React.FC = () => {
     }
   };
 
-  // Debounced barcode handler (Prevents duplicate accidental multi-reads within 800ms for same code)
+  // Debounced barcode handler (Prevents duplicate rapid scans for same code within 900ms)
   const handleBarcodeDetected = (rawCode: string) => {
     const code = rawCode.trim();
     if (!code) return;
 
     const now = Date.now();
     if (code === lastScannedCodeRef.current && now - lastScannedTimeRef.current < 900) {
-      return; // Skip duplicate rapid scan
+      return;
     }
 
     lastScannedCodeRef.current = code;
     lastScannedTimeRef.current = now;
 
-    // Transmit to Laptop Billing Screen via WebSocket (<15ms)
+    // Transmit to Laptop Billing Cart via WebSocket (<15ms)
     socket.emit('scan-barcode', { barcode: code }, (response: any) => {
       const isSuccess = response && response.success;
       if (isSuccess) {
@@ -181,22 +213,32 @@ export const MobileScannerPage: React.FC = () => {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <div style={{
-            width: 32,
-            height: 32,
-            borderRadius: '8px',
-            background: 'linear-gradient(135deg, #2563eb, #7c3aed)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
+          <div
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: '8px',
+              background: 'linear-gradient(135deg, #2563eb, #7c3aed)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
             <Smartphone size={18} />
           </div>
           <div>
             <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>POS Mobile Scanner</div>
-            <div style={{ fontSize: '0.7rem', color: isConnected ? '#34d399' : '#f87171', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+            <div
+              style={{
+                fontSize: '0.7rem',
+                color: isConnected ? '#34d399' : '#f87171',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.3rem',
+              }}
+            >
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }} />
-              {isConnected ? 'Connected to Laptop Cart' : 'Connecting to Laptop...'}
+              {isConnected ? 'Synced with Laptop Cart' : 'Connecting to Laptop...'}
             </div>
           </div>
         </div>
@@ -211,7 +253,7 @@ export const MobileScannerPage: React.FC = () => {
               padding: '0.45rem',
               borderRadius: '8px',
             }}
-            title={soundEnabled ? 'Mute' : 'Unmute'}
+            title={soundEnabled ? 'Mute Sound' : 'Enable Sound'}
           >
             {soundEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
           </button>
@@ -224,12 +266,44 @@ export const MobileScannerPage: React.FC = () => {
               padding: '0.45rem',
               borderRadius: '8px',
             }}
-            title={isPaused ? 'Resume' : 'Pause'}
+            title={isPaused ? 'Resume Camera' : 'Pause Camera'}
           >
             {isPaused ? <Play size={18} /> : <Pause size={18} />}
           </button>
         </div>
       </div>
+
+      {/* Insecure Context Warning if not on HTTPS */}
+      {!isSecure && (
+        <div
+          style={{
+            background: 'rgba(245, 158, 11, 0.15)',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
+            borderRadius: '12px',
+            padding: '0.75rem 1rem',
+            marginBottom: '1rem',
+            fontSize: '0.8rem',
+            color: '#fbbf24',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '0.6rem',
+          }}
+        >
+          <ShieldAlert size={20} style={{ flexShrink: 0, marginTop: '2px' }} />
+          <div>
+            <strong>Camera Security Requirement:</strong>
+            <div style={{ fontSize: '0.75rem', marginTop: '2px', color: '#fef3c7' }}>
+              Mobile browsers require <strong>HTTPS</strong> for camera permissions. If the camera doesn't start, please open:{' '}
+              <a
+                href={`https://${window.location.host}${window.location.pathname}`}
+                style={{ color: '#38bdf8', textDecoration: 'underline' }}
+              >
+                https://{window.location.host}{window.location.pathname}
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Camera Viewport Container */}
       <div
@@ -245,16 +319,65 @@ export const MobileScannerPage: React.FC = () => {
             : '2px solid #1f293d',
           transition: 'border-color 0.3s',
           boxShadow: '0 8px 30px rgba(0, 0, 0, 0.6)',
+          minHeight: '280px',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
         }}
       >
-        <div id="qr-reader" style={{ width: '100%', minHeight: '300px' }} />
+        <div id="qr-reader" style={{ width: '100%' }} />
 
+        {/* Permission Request Prompt (iOS Safari / First time) */}
+        {!cameraActive && !cameraError && (
+          <div
+            style={{
+              padding: '2rem 1.5rem',
+              textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <div
+              style={{
+                width: 50,
+                height: 50,
+                borderRadius: '50%',
+                background: 'rgba(59, 130, 246, 0.2)',
+                color: '#60a5fa',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: '1rem',
+              }}
+            >
+              <Camera size={26} />
+            </div>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '0.4rem' }}>
+              Camera Access Required
+            </h3>
+            <p style={{ fontSize: '0.8rem', color: '#94a3b8', maxWidth: '300px', marginBottom: '1.25rem' }}>
+              Tap below and click <strong>Allow</strong> when prompted by your phone to start barcode scanning.
+            </p>
+            <button
+              className="btn-primary"
+              onClick={startCamera}
+              style={{ padding: '0.75rem 1.5rem', fontSize: '0.9rem', fontWeight: 700 }}
+            >
+              <Camera size={18} />
+              Enable Camera Scanner
+            </button>
+          </div>
+        )}
+
+        {/* Paused State Overlay */}
         {isPaused && (
           <div
             style={{
               position: 'absolute',
               inset: 0,
-              background: 'rgba(0, 0, 0, 0.8)',
+              background: 'rgba(0, 0, 0, 0.85)',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
@@ -262,7 +385,7 @@ export const MobileScannerPage: React.FC = () => {
               zIndex: 10,
             }}
           >
-            <Pause size={40} color="#fbbf24" style={{ marginBottom: '0.5rem' }} />
+            <Pause size={38} color="#fbbf24" style={{ marginBottom: '0.5rem' }} />
             <div style={{ fontWeight: 600 }}>Scanner Paused</div>
             <button
               className="btn-primary"
@@ -274,6 +397,7 @@ export const MobileScannerPage: React.FC = () => {
           </div>
         )}
 
+        {/* Error State Overlay */}
         {cameraError && (
           <div
             style={{
@@ -286,23 +410,29 @@ export const MobileScannerPage: React.FC = () => {
               justifyContent: 'center',
               padding: '1.5rem',
               textAlign: 'center',
+              zIndex: 20,
             }}
           >
-            <AlertCircle size={40} color="#ef4444" style={{ marginBottom: '0.75rem' }} />
-            <div style={{ fontWeight: 700, color: '#fca5a5', marginBottom: '0.5rem' }}>
-              Camera Permission Required
+            <AlertCircle size={36} color="#ef4444" style={{ marginBottom: '0.75rem' }} />
+            <div style={{ fontWeight: 700, color: '#fca5a5', marginBottom: '0.5rem', fontSize: '0.95rem' }}>
+              Camera Access Blocked
             </div>
-            <div style={{ fontSize: '0.75rem', color: '#cbd5e1', lineHeight: 1.5, marginBottom: '1rem' }}>
+            <div style={{ fontSize: '0.75rem', color: '#cbd5e1', lineHeight: 1.5, marginBottom: '1.25rem' }}>
               {cameraError}
             </div>
-            <button className="btn-secondary" onClick={startCamera}>
-              Retry Camera
+            <button
+              className="btn-primary"
+              onClick={startCamera}
+              style={{ padding: '0.6rem 1.2rem', fontSize: '0.85rem' }}
+            >
+              <RefreshCw size={15} />
+              Retry Permission
             </button>
           </div>
         )}
       </div>
 
-      {/* Target Aiming Guide Info */}
+      {/* Aiming Guide */}
       <div
         style={{
           textAlign: 'center',
@@ -311,10 +441,10 @@ export const MobileScannerPage: React.FC = () => {
           margin: '0.6rem 0',
         }}
       >
-        Align barcode inside the central box. Scans automatically.
+        Align barcode inside the box. Products appear instantly on laptop.
       </div>
 
-      {/* Last Scan Feedback Banner */}
+      {/* Last Scan Feedback Card */}
       {lastScanned && (
         <div
           style={{
@@ -339,7 +469,13 @@ export const MobileScannerPage: React.FC = () => {
               <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fff' }}>
                 {lastScanned.productName}
               </div>
-              <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.6)', fontFamily: 'var(--font-mono)' }}>
+              <div
+                style={{
+                  fontSize: '0.75rem',
+                  color: 'rgba(255, 255, 255, 0.6)',
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
                 {lastScanned.code} • {lastScanned.timestamp}
               </div>
             </div>
