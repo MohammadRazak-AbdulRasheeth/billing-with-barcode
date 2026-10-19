@@ -47,9 +47,27 @@ app.use('/api/reports', reportsRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/network', networkRouter);
 
-// Health check endpoint
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Health check & Database connection diagnostics endpoint
+app.get('/api/health', async (_req, res) => {
+  try {
+    const { prisma } = await import('./db');
+    // Test database connection by counting products
+    const productCount = await prisma.product.count();
+    res.json({
+      status: 'ok',
+      database: 'connected',
+      productCount,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      status: 'error',
+      database: 'disconnected',
+      error: err.message,
+      code: err.code,
+      timestamp: new Date().toISOString(),
+    });
+  }
 });
 
 // Serve built React client in production
