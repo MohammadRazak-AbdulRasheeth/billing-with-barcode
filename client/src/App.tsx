@@ -33,6 +33,7 @@ export const App: React.FC = () => {
   const [showQRModal, setShowQRModal] = useState(false);
   const [unknownBarcode, setUnknownBarcode] = useState<string | null>(null);
   const [lastCompletedInvoice, setLastCompletedInvoice] = useState<Invoice | null>(null);
+  const [selectedBarcodeProductId, setSelectedBarcodeProductId] = useState<number | null>(null);
 
   // Initialize POS Terminal
   useEffect(() => {
@@ -154,6 +155,10 @@ export const App: React.FC = () => {
             products={products}
             refreshProducts={loadInitialData}
             currency={currency}
+            onPrintBarcode={(productId) => {
+              setSelectedBarcodeProductId(productId);
+              setActiveTab('barcodes');
+            }}
           />
         )}
 
@@ -168,6 +173,8 @@ export const App: React.FC = () => {
           <BarcodeGenerator
             products={products}
             currency={currency}
+            shopName={settings.SHOP_NAME || 'FRESHMART'}
+            selectedProductId={selectedBarcodeProductId}
           />
         )}
 

@@ -17,6 +17,7 @@ interface BarcodeGeneratorProps {
   products: Product[];
   currency?: string;
   shopName?: string;
+  selectedProductId?: number | null;
 }
 
 type SheetFormat = 'thermal_50x30' | 'thermal_38x25' | 'a4_24' | 'a4_40' | 'a4_65';
@@ -25,8 +26,9 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
   products,
   currency = '₹',
   shopName = 'FRESHMART',
+  selectedProductId,
 }) => {
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(products[0] || null);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [customBarcode, setCustomBarcode] = useState('');
   const [productTitle, setProductTitle] = useState('');
   const [productPrice, setProductPrice] = useState('');
@@ -44,10 +46,13 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
   const [isPrinting, setIsPrinting] = useState(false);
 
   useEffect(() => {
-    if (products.length > 0 && !selectedProduct) {
-      handleSelectProduct(products[0]);
+    if (selectedProductId && products.length > 0) {
+      const found = products.find((p) => p.id === selectedProductId);
+      if (found) {
+        handleSelectProduct(found);
+      }
     }
-  }, [products]);
+  }, [products, selectedProductId]);
 
   const handleSelectProduct = (p: Product) => {
     setSelectedProduct(p);
@@ -75,14 +80,34 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
     }
   };
 
+  // Helper: check if string is valid EAN-13 with matching modulo-10 checksum
+  const isValidEAN13 = (code: string) => {
+    if (!/^\d{13}$/.test(code)) return false;
+    let sum = 0;
+    for (let i = 0; i < 12; i++) {
+      sum += parseInt(code[i], 10) * (i % 2 === 0 ? 1 : 3);
+    }
+    const check = (10 - (sum % 10)) % 10;
+    return check === parseInt(code[12], 10);
+  };
+
   // Generate high-resolution barcode image data URL
   const barcodeImageDataUrl = useMemo(() => {
-    if (!customBarcode) return '';
+    if (!customBarcode || !customBarcode.trim()) return '';
+    const cleanCode = customBarcode.trim();
+
+    // Determine actual format to use
+    let targetFormat: string = barcodeFormat;
+    if (barcodeFormat === 'EAN13' && !isValidEAN13(cleanCode)) {
+      // If user selected EAN13 but checksum is invalid, fall back to CODE128 so barcode always renders!
+      targetFormat = 'CODE128';
+    }
+
     try {
       const canvas = document.createElement('canvas');
       const isCompact = sheetFormat === 'a4_65' || sheetFormat === 'thermal_38x25';
-      JsBarcode(canvas, customBarcode, {
-        format: barcodeFormat,
+      JsBarcode(canvas, cleanCode, {
+        format: targetFormat,
         width: isCompact ? 1.5 : 2,
         height: isCompact ? 36 : 50,
         displayValue: showBarcodeText,
@@ -95,8 +120,22 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
       });
       return canvas.toDataURL('image/png');
     } catch (e) {
-      console.warn('Barcode generation warning:', e);
-      return '';
+      // Secondary fallback to universal CODE128
+      try {
+        const canvas = document.createElement('canvas');
+        JsBarcode(canvas, cleanCode, {
+          format: 'CODE128',
+          width: 2,
+          height: 48,
+          displayValue: showBarcodeText,
+          background: '#ffffff',
+          lineColor: '#000000',
+        });
+        return canvas.toDataURL('image/png');
+      } catch (fallbackErr) {
+        console.warn('Barcode rendering error:', fallbackErr);
+        return '';
+      }
     }
   }, [customBarcode, barcodeFormat, showBarcodeText, sheetFormat]);
 
@@ -177,10 +216,19 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
               <select
                 value={selectedProduct?.id || ''}
                 onChange={(e) => {
-                  const p = products.find((x) => x.id === parseInt(e.target.value, 10));
+                  const val = e.target.value;
+                  if (!val) {
+                    setSelectedProduct(null);
+                    setCustomBarcode('');
+                    setProductTitle('');
+                    setProductPrice('');
+                    return;
+                  }
+                  const p = products.find((x) => x.id === parseInt(val, 10));
                   if (p) handleSelectProduct(p);
                 }}
               >
+                <option value="">-- Select a Product to Print --</option>
                 {products.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name} [{p.barcode}] — {currency}{Number(p.sellingPrice).toFixed(2)}
@@ -336,10 +384,18 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
               <button
                 className="btn-primary"
                 onClick={handlePrint}
-                style={{ width: '100%', padding: '0.85rem', fontSize: '1rem', fontWeight: 700 }}
+                disabled={!barcodeImageDataUrl}
+                style={{
+                  width: '100%',
+                  padding: '0.85rem',
+                  fontSize: '1rem',
+                  fontWeight: 700,
+                  opacity: barcodeImageDataUrl ? 1 : 0.6,
+                  cursor: barcodeImageDataUrl ? 'pointer' : 'not-allowed',
+                }}
               >
                 <Printer size={18} />
-                Print {labelCount} Barcode Labels Now
+                {barcodeImageDataUrl ? `Print ${labelCount} Barcode Labels Now` : 'Select a Product to Print'}
               </button>
             </div>
           </div>
@@ -411,7 +467,19 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                 />
               </div>
             ) : (
-              <div style={{ padding: '1rem', color: '#888', fontSize: '0.8rem' }}>Generating barcode...</div>
+              <div
+                style={{
+                  padding: '1.25rem 0.5rem',
+                  color: '#94a3b8',
+                  fontSize: '0.8rem',
+                  fontStyle: 'italic',
+                  border: '1px dashed #cbd5e1',
+                  borderRadius: '4px',
+                  margin: '6px 0',
+                }}
+              >
+                Select a product or enter a barcode to view preview
+              </div>
             )}
 
             {showPrice && (

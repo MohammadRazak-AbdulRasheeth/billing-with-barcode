@@ -19,12 +19,14 @@ interface ProductsPageProps {
   products: Product[];
   refreshProducts: () => void;
   currency?: string;
+  onPrintBarcode?: (productId: number) => void;
 }
 
 export const ProductsPage: React.FC<ProductsPageProps> = ({
   products,
   refreshProducts,
   currency = '₹',
+  onPrintBarcode,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -308,6 +310,20 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                           >
                             <ArrowUpDown size={13} />
                             <span>Stock</span>
+                          </button>
+
+                          <button
+                            className="btn-secondary"
+                            onClick={() => {
+                              if (onPrintBarcode) {
+                                onPrintBarcode(p.id);
+                              }
+                            }}
+                            style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem', color: 'var(--primary)' }}
+                            title="Print Barcode Labels"
+                          >
+                            <Barcode size={13} />
+                            <span>Label</span>
                           </button>
 
                           <button

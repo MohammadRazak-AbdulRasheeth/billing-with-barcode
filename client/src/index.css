@@ -415,39 +415,75 @@ button {
   z-index: 15;
 }
 
-/* Target Corner Brackets */
+/* Target Corner Brackets on Camera Viewfinder */
 .scanner-corner {
   position: absolute;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border-color: #10b981;
   border-style: solid;
   pointer-events: none;
-  z-index: 15;
+  z-index: 25;
 }
 .scanner-corner-tl {
-  top: 15px;
-  left: 15px;
-  border-width: 3px 0 0 3px;
-  border-top-left-radius: 8px;
+  top: 0;
+  left: 0;
+  border-width: 3.5px 0 0 3.5px;
+  border-top-left-radius: 10px;
 }
 .scanner-corner-tr {
-  top: 15px;
-  right: 15px;
-  border-width: 3px 3px 0 0;
-  border-top-right-radius: 8px;
+  top: 0;
+  right: 0;
+  border-width: 3.5px 3.5px 0 0;
+  border-top-right-radius: 10px;
 }
 .scanner-corner-bl {
-  bottom: 15px;
-  left: 15px;
-  border-width: 0 0 3px 3px;
-  border-bottom-left-radius: 8px;
+  bottom: 0;
+  left: 0;
+  border-width: 0 0 3.5px 3.5px;
+  border-bottom-left-radius: 10px;
 }
 .scanner-corner-br {
-  bottom: 15px;
-  right: 15px;
-  border-width: 0 3px 3px 0;
-  border-bottom-right-radius: 8px;
+  bottom: 0;
+  right: 0;
+  border-width: 0 3.5px 3.5px 0;
+  border-bottom-right-radius: 10px;
+}
+
+/* Camera Viewfinder Styling */
+.scanner-viewport {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  max-height: 58vh;
+  border-radius: 20px;
+  overflow: hidden;
+  background-color: #000000;
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scanner-video-feed {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.scanner-reticle-box {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 78%;
+  max-width: 290px;
+  height: 140px;
+  pointer-events: none;
+  z-index: 20;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.42);
+  border-radius: 12px;
 }
 
 /* ==========================================================

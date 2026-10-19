@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import {
   Camera,
   Pause,
@@ -49,8 +49,13 @@ export const MobileScannerPage: React.FC = () => {
   const [showKeypad, setShowKeypad] = useState(false);
   const [keypadInput, setKeypadInput] = useState('');
   const [isSecure, setIsSecure] = useState(true);
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [zoomSupported, setZoomSupported] = useState(false);
+  const [maxZoom, setMaxZoom] = useState<number>(3);
 
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const scanIntervalRef = useRef<number | null>(null);
   const lastScannedTimeRef = useRef<number>(0);
   const lastScannedCodeRef = useRef<string>('');
 
@@ -99,47 +104,48 @@ export const MobileScannerPage: React.FC = () => {
         return;
       }
 
-      if (scannerRef.current) {
-        try {
-          await scannerRef.current.stop();
-        } catch {
-          // ignore
-        }
-      }
+      stopCamera();
 
-      const scanner = new Html5Qrcode('qr-reader');
-      scannerRef.current = scanner;
-
-      const config = {
-        fps: 20,
-        qrbox: { width: 270, height: 160 },
-        aspectRatio: 1.0,
+      // Request high-definition 1080p video feed for crystal-clear long-distance barcode lines
+      const constraints: MediaStreamConstraints = {
+        audio: false,
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 },
+        },
       };
 
-      await scanner.start(
-        { facingMode: 'environment' },
-        config,
-        (decodedText) => handleBarcodeDetected(decodedText),
-        () => {}
-      );
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      mediaStreamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute('playsinline', 'true');
+        await videoRef.current.play();
+      }
 
       setCameraActive(true);
       setIsScanning(true);
       setIsPaused(false);
 
-      // Check for flashlight/torch capability
+      // Check hardware capabilities (Torch & Hardware Optical/Digital Zoom)
       try {
-        const stream = (scanner as any).localMediaStream as MediaStream;
-        if (stream) {
-          const track = stream.getVideoTracks()[0];
-          const capabilities = (track as any).getCapabilities?.();
-          if (capabilities && capabilities.torch) {
-            setTorchSupported(true);
+        const track = stream.getVideoTracks()[0];
+        const capabilities = (track as any).getCapabilities?.();
+        if (capabilities) {
+          if (capabilities.torch) setTorchSupported(true);
+          if (capabilities.zoom) {
+            setZoomSupported(true);
+            setMaxZoom(Math.min(capabilities.zoom.max || 3, 4));
           }
         }
       } catch {
-        // Torch not supported on some browsers
+        // Capabilities not supported
       }
+
+      // Launch barcode decoding loop
+      startDecodingLoop();
     } catch (err: any) {
       console.error('Camera start error:', err);
       setCameraActive(false);
@@ -150,47 +156,135 @@ export const MobileScannerPage: React.FC = () => {
     }
   };
 
-  const stopCamera = async () => {
-    if (scannerRef.current && scannerRef.current.isScanning) {
-      try {
-        await scannerRef.current.stop();
-        scannerRef.current.clear();
-      } catch (e) {
-        console.warn('Camera stop error:', e);
-      }
+  const stopCamera = () => {
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
     }
     setCameraActive(false);
     setIsScanning(false);
   };
 
   const togglePause = () => {
-    if (scannerRef.current) {
-      if (isPaused) {
-        scannerRef.current.resume();
-        setIsPaused(false);
-      } else {
-        scannerRef.current.pause(true);
-        setIsPaused(true);
+    if (isPaused) {
+      if (videoRef.current) videoRef.current.play();
+      setIsPaused(false);
+      startDecodingLoop();
+    } else {
+      if (videoRef.current) videoRef.current.pause();
+      setIsPaused(true);
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current);
+        scanIntervalRef.current = null;
       }
     }
   };
 
   const toggleTorch = async () => {
     try {
-      if (scannerRef.current) {
-        const stream = (scannerRef.current as any).localMediaStream as MediaStream;
-        if (stream) {
-          const track = stream.getVideoTracks()[0];
-          const newStatus = !isTorchOn;
-          await (track as any).applyConstraints({
-            advanced: [{ torch: newStatus }],
-          });
-          setIsTorchOn(newStatus);
-        }
+      if (mediaStreamRef.current) {
+        const track = mediaStreamRef.current.getVideoTracks()[0];
+        const newStatus = !isTorchOn;
+        await (track as any).applyConstraints({
+          advanced: [{ torch: newStatus }],
+        });
+        setIsTorchOn(newStatus);
       }
     } catch (e) {
       console.warn('Flashlight error:', e);
     }
+  };
+
+  const applyZoom = async (newZoom: number) => {
+    setZoomLevel(newZoom);
+    try {
+      if (mediaStreamRef.current) {
+        const track = mediaStreamRef.current.getVideoTracks()[0];
+        await (track as any).applyConstraints({
+          advanced: [{ zoom: newZoom }],
+        });
+      }
+    } catch (e) {
+      console.warn('Hardware zoom constraint error:', e);
+    }
+  };
+
+  // High-performance barcode detection engine
+  const startDecodingLoop = () => {
+    if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
+
+    // Check if native BarcodeDetector API is available (iOS 17+ / Chrome Android)
+    const hasNativeBarcodeDetector = 'BarcodeDetector' in window;
+    let nativeDetector: any = null;
+
+    if (hasNativeBarcodeDetector) {
+      try {
+        nativeDetector = new (window as any).BarcodeDetector({
+          formats: ['ean_13', 'code_128', 'upc_a', 'upc_e', 'ean_8', 'code_39', 'qr_code'],
+        });
+      } catch (e) {
+        console.warn('Native BarcodeDetector init failed, using fallback:', e);
+      }
+    }
+
+    // Off-screen canvas for fallback decoding
+    const offscreenCanvas = document.createElement('canvas');
+    const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+    let fallbackScanner: Html5Qrcode | null = null;
+
+    scanIntervalRef.current = window.setInterval(async () => {
+      if (!videoRef.current || videoRef.current.readyState < 2 || isPaused) return;
+
+      const video = videoRef.current;
+
+      // 1. FASTEST PATH: Native Hardware BarcodeDetector (<5ms)
+      if (nativeDetector) {
+        try {
+          const barcodes = await nativeDetector.detect(video);
+          if (barcodes && barcodes.length > 0) {
+            const raw = barcodes[0].rawValue;
+            if (raw) {
+              handleBarcodeDetected(raw);
+              return;
+            }
+          }
+        } catch {
+          // fall through to fallback
+        }
+      }
+
+      // 2. FALLBACK PATH: Html5Qrcode / ZXing scan
+      try {
+        if (!fallbackScanner) {
+          fallbackScanner = new Html5Qrcode('qr-reader-hidden-canvas', { verbose: false });
+        }
+        offscreenCanvas.width = video.videoWidth || 640;
+        offscreenCanvas.height = video.videoHeight || 480;
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
+          offscreenCanvas.toBlob(async (blob) => {
+            if (blob && fallbackScanner) {
+              try {
+                const file = new File([blob], 'frame.jpg', { type: 'image/jpeg' });
+                const res = await fallbackScanner.scanFile(file, false);
+                if (res) handleBarcodeDetected(res);
+              } catch {
+                // ignore unrecognised frame
+              }
+            }
+          }, 'image/jpeg', 0.8);
+        }
+      } catch {
+        // ignore frame decoding errors
+      }
+    }, 80); // ~12-15 checks per second with zero lag
   };
 
   // Debounced scan handler
@@ -420,33 +514,112 @@ export const MobileScannerPage: React.FC = () => {
       <div
         style={{
           position: 'relative',
-          borderRadius: '18px',
+          borderRadius: '20px',
           overflow: 'hidden',
           backgroundColor: '#000000',
           border: isLastScannedSuccess()
             ? '2px solid #10b981'
             : lastScanned && !lastScanned.success
             ? '2px solid #ef4444'
-            : '2px solid #1e293b',
+            : '1px solid rgba(255, 255, 255, 0.12)',
           transition: 'border-color 0.3s',
-          boxShadow: '0 10px 35px rgba(0, 0, 0, 0.7)',
-          minHeight: '270px',
+          boxShadow: '0 12px 40px rgba(0, 0, 0, 0.85)',
+          minHeight: '320px',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'center',
+          alignItems: 'center',
         }}
       >
-        {/* Corner Brackets */}
-        <div className="scanner-corner scanner-corner-tl" />
-        <div className="scanner-corner scanner-corner-tr" />
-        <div className="scanner-corner scanner-corner-bl" />
-        <div className="scanner-corner scanner-corner-br" />
+        {/* Modern Targeting Reticle (Center Focus Box) */}
+        {cameraActive && !isPaused && (
+          <div
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: '80%',
+              maxWidth: '300px',
+              height: '140px',
+              pointerEvents: 'none',
+              zIndex: 20,
+              boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.35)',
+              borderRadius: '12px',
+            }}
+          >
+            {/* Reticle Corner Brackets */}
+            <div className="scanner-corner scanner-corner-tl" />
+            <div className="scanner-corner scanner-corner-tr" />
+            <div className="scanner-corner scanner-corner-bl" />
+            <div className="scanner-corner scanner-corner-br" />
 
-        {/* Animated Laser Beam */}
-        {cameraActive && !isPaused && <div className="scanner-laser-line" />}
+            {/* Animated Laser Sweep inside the scan box */}
+            <div className="scanner-laser-line" />
+          </div>
+        )}
 
-        {/* Video stream container */}
-        <div id="qr-reader" style={{ width: '100%' }} />
+        {/* Quick Zoom Pill Selector (1x / 2x / 3x) for Long Distance Scanning */}
+        {cameraActive && !isPaused && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '12px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: 'rgba(15, 23, 42, 0.75)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              borderRadius: '9999px',
+              padding: '3px 6px',
+              display: 'flex',
+              gap: '4px',
+              zIndex: 30,
+              boxShadow: '0 4px 15px rgba(0, 0, 0, 0.5)',
+            }}
+          >
+            {[1, 2, 3].map((z) => (
+              <button
+                key={z}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  applyZoom(z);
+                }}
+                style={{
+                  background: zoomLevel === z ? '#2563eb' : 'transparent',
+                  color: zoomLevel === z ? '#ffffff' : '#94a3b8',
+                  border: 'none',
+                  borderRadius: '9999px',
+                  padding: '3px 10px',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                {z}x
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Native HTML5 Video Camera Feed */}
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          autoPlay
+          className="scanner-video-feed"
+          style={{
+            display: cameraActive ? 'block' : 'none',
+            transform: zoomLevel > 1 ? `scale(${zoomLevel})` : 'none',
+            transformOrigin: 'center center',
+            transition: 'transform 0.2s ease-out',
+          }}
+        />
+
+        {/* Hidden auxiliary canvas for fallback background decoding */}
+        <div id="qr-reader-hidden-canvas" style={{ display: 'none' }} />
 
         {/* Prompt to start camera (iOS / First time) */}
         {!cameraActive && !cameraError && (
