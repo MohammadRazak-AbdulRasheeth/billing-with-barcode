@@ -168,6 +168,20 @@ export const BillingPage: React.FC<BillingPageProps> = ({
   const cashAmountNum = parseFloat(cashReceived) || 0;
   const changeDue = Math.max(0, cashAmountNum - netPayable);
 
+  const [completedSale, setCompletedSale] = useState<{
+    invoice: Invoice;
+    cashReceived: number;
+    changeDue: number;
+  } | null>(null);
+
+  const triggerThermalPrint = () => {
+    document.body.classList.add('printing-thermal');
+    window.print();
+    setTimeout(() => {
+      document.body.classList.remove('printing-thermal');
+    }, 1500);
+  };
+
   // Complete Checkout
   const handleCompleteSale = async () => {
     if (cart.length === 0) return;
@@ -175,6 +189,9 @@ export const BillingPage: React.FC<BillingPageProps> = ({
     try {
       setIsSubmitting(true);
       setErrorMsg(null);
+
+      const cashAmt = parseFloat(cashReceived) || 0;
+      const change = Math.max(0, cashAmt - netPayable);
 
       const payload = {
         items: cart.map((i) => ({
@@ -191,15 +208,24 @@ export const BillingPage: React.FC<BillingPageProps> = ({
       playBeepSuccess();
       onInvoiceCreated(completedInvoice);
       setShowCheckoutModal(false);
+
+      // Record completed sale for modal & reprint
+      setCompletedSale({
+        invoice: completedInvoice,
+        cashReceived: cashAmt,
+        changeDue: change,
+      });
+
+      // Reset active cart
       setCart([]);
       setOverallDiscount(0);
       setCashReceived('');
       setNotes('');
 
-      // Auto-trigger print
+      // Auto-trigger isolated thermal print
       setTimeout(() => {
-        window.print();
-      }, 300);
+        triggerThermalPrint();
+      }, 350);
     } catch (err: any) {
       playBeepError();
       setErrorMsg(err.message || 'Failed to complete transaction');
@@ -697,6 +723,106 @@ export const BillingPage: React.FC<BillingPageProps> = ({
               >
                 <Printer size={18} />
                 {isSubmitting ? 'Processing...' : 'Complete & Print (Enter)'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Post-Checkout Success Receipt Modal */}
+      {completedSale && (
+        <div className="modal-overlay" onClick={() => setCompletedSale(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px', textAlign: 'center' }}>
+            <div style={{ padding: '2rem 1.5rem 1rem' }}>
+              <div
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: '50%',
+                  background: 'rgba(16, 185, 129, 0.2)',
+                  color: '#34d399',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 1rem',
+                  boxShadow: '0 0 20px rgba(16, 185, 129, 0.3)',
+                }}
+              >
+                <Printer size={28} />
+              </div>
+
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '0.25rem' }}>
+                Sale Completed!
+              </h3>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                {completedSale.invoice.invoiceNumber}
+              </p>
+
+              <div
+                style={{
+                  background: 'var(--bg-input)',
+                  borderRadius: '12px',
+                  padding: '1rem',
+                  margin: '1.25rem 0',
+                  border: '1px solid var(--border-subtle)',
+                  textAlign: 'left',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.5rem',
+                  fontSize: '0.85rem',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Amount Paid:</span>
+                  <strong style={{ fontSize: '1.1rem', color: '#38bdf8' }}>
+                    {currency} {Number(completedSale.invoice.totalAmount).toFixed(2)}
+                  </strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Payment Tender:</span>
+                  <strong>{completedSale.invoice.paymentMethod}</strong>
+                </div>
+
+                {completedSale.invoice.paymentMethod === 'CASH' && completedSale.changeDue > 0 && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+                      paddingTop: '0.5rem',
+                      color: '#34d399',
+                      fontWeight: 700,
+                    }}
+                  >
+                    <span>Change to Return:</span>
+                    <span style={{ fontSize: '1.1rem' }}>
+                      {currency} {completedSale.changeDue.toFixed(2)}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
+                Receipt sent to thermal printer.
+              </p>
+            </div>
+
+            <div className="modal-footer" style={{ justifyContent: 'center', gap: '0.75rem' }}>
+              <button
+                className="btn-secondary"
+                onClick={triggerThermalPrint}
+                style={{ flex: 1 }}
+              >
+                <Printer size={15} />
+                Reprint
+              </button>
+              <button
+                className="btn-primary"
+                onClick={() => setCompletedSale(null)}
+                style={{ flex: 1.4 }}
+                autoFocus
+              >
+                Next Bill (F2 / Enter)
               </button>
             </div>
           </div>

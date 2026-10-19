@@ -86,6 +86,18 @@ export const App: React.FC = () => {
     };
   }, []);
 
+  // Sync live cart total and item count to mobile phone scanner
+  useEffect(() => {
+    if (!isMobileScannerRoute) {
+      const totalCount = cart.reduce((a, b) => a + b.quantity, 0);
+      const totalAmount = cart.reduce((acc, item) => {
+        const p = parseFloat(item.product.sellingPrice.toString());
+        return acc + Math.max(0, p * item.quantity - item.discount);
+      }, 0);
+      socket.emit('update-cart-summary', { count: totalCount, total: totalAmount });
+    }
+  }, [cart, isMobileScannerRoute]);
+
   const loadInitialData = async () => {
     try {
       const [prodsData, settingsData] = await Promise.all([

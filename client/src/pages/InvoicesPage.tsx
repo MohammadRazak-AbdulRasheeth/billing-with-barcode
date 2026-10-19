@@ -32,8 +32,12 @@ export const InvoicesPage: React.FC<InvoicesPageProps> = ({ onReprintInvoice, cu
 
   const handlePrint = (inv: Invoice) => {
     onReprintInvoice(inv);
+    document.body.classList.add('printing-thermal');
     setTimeout(() => {
       window.print();
+      setTimeout(() => {
+        document.body.classList.remove('printing-thermal');
+      }, 1500);
     }, 200);
   };
 

@@ -387,44 +387,121 @@ button {
   box-shadow: var(--shadow-sm);
 }
 
+/* Scanner Laser Animation */
+@keyframes laser-sweep {
+  0% {
+    top: 10%;
+    opacity: 0.8;
+  }
+  50% {
+    top: 90%;
+    opacity: 1;
+  }
+  100% {
+    top: 10%;
+    opacity: 0.8;
+  }
+}
+
+.scanner-laser-line {
+  position: absolute;
+  left: 5%;
+  right: 5%;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #10b981, #34d399, #10b981, transparent);
+  box-shadow: 0 0 15px #10b981, 0 0 25px #34d399;
+  animation: laser-sweep 2.2s infinite ease-in-out;
+  pointer-events: none;
+  z-index: 15;
+}
+
+/* Target Corner Brackets */
+.scanner-corner {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-color: #10b981;
+  border-style: solid;
+  pointer-events: none;
+  z-index: 15;
+}
+.scanner-corner-tl {
+  top: 15px;
+  left: 15px;
+  border-width: 3px 0 0 3px;
+  border-top-left-radius: 8px;
+}
+.scanner-corner-tr {
+  top: 15px;
+  right: 15px;
+  border-width: 3px 3px 0 0;
+  border-top-right-radius: 8px;
+}
+.scanner-corner-bl {
+  bottom: 15px;
+  left: 15px;
+  border-width: 0 0 3px 3px;
+  border-bottom-left-radius: 8px;
+}
+.scanner-corner-br {
+  bottom: 15px;
+  right: 15px;
+  border-width: 0 3px 3px 0;
+  border-bottom-right-radius: 8px;
+}
+
 /* ==========================================================
-   THERMAL RECEIPT PRINTING STYLES (80mm & 58mm Paper)
+   ADVANCED PRINTING SYSTEM (Thermal Receipts & Barcode Labels)
    ========================================================== */
+#print-thermal-container,
+#print-barcode-container {
+  display: none;
+}
+
 @media print {
-  body {
+  /* Hide all regular UI when printing */
+  html, body {
     background: #ffffff !important;
     color: #000000 !important;
-    font-family: var(--font-mono) !important;
     margin: 0 !important;
     padding: 0 !important;
+    width: 100% !important;
   }
 
-  /* Hide everything except the thermal receipt container */
+  .app-container,
   .header-nav,
   .main-content,
-  .modal-overlay:not(.print-modal),
+  .modal-overlay,
   .no-print {
     display: none !important;
   }
 
-  .print-only-container {
+  @page {
+    margin: 0;
+    size: auto;
+  }
+
+  /* When printing Thermal Receipts */
+  body.printing-thermal #print-thermal-container {
     display: block !important;
     position: absolute;
     left: 0;
     top: 0;
-    width: 80mm;
-    margin: 0;
-    padding: 2mm 3mm;
-    color: #000000 !important;
+    margin: 0 auto !important;
     background: #ffffff !important;
+    color: #000000 !important;
   }
 
-  @page {
-    size: 80mm auto;
-    margin: 0;
+  /* When printing Barcode Sticker Sheets */
+  body.printing-barcodes #print-barcode-container {
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 4mm !important;
+    background: #ffffff !important;
+    color: #000000 !important;
   }
-}
-
-.print-only-container {
-  display: none;
 }

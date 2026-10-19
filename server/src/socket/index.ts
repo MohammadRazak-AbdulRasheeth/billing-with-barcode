@@ -71,6 +71,12 @@ export function setupSocketIO(io: SocketIOServer) {
       }
     });
 
+    // Sync active cart summary from laptop to mobile scanner
+    socket.on('update-cart-summary', (data: { count: number; total: number; sessionId?: string }) => {
+      const { sessionId = 'main-pos' } = data;
+      socket.to(sessionId).emit('cart-summary-updated', data);
+    });
+
     socket.on('disconnect', () => {
       console.log(`[Socket.IO] Client disconnected: ${socket.id}`);
     });

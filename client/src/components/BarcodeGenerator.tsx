@@ -1,24 +1,48 @@
 import React, { useState, useEffect, useRef } from 'react';
 import JsBarcode from 'jsbarcode';
-import { Printer, RefreshCw, Layers, Sparkles, Tag } from 'lucide-react';
+import {
+  Printer,
+  RefreshCw,
+  Layers,
+  Sparkles,
+  Tag,
+  Check,
+  Eye,
+  Sliders,
+  FileSpreadsheet,
+} from 'lucide-react';
 import { Product } from '../types';
 import { api } from '../services/api';
 
 interface BarcodeGeneratorProps {
   products: Product[];
   currency?: string;
+  shopName?: string;
 }
 
-export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({ products, currency = '₹' }) => {
+type SheetFormat = 'thermal_50x30' | 'thermal_38x25' | 'a4_24' | 'a4_40' | 'a4_65';
+
+export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
+  products,
+  currency = '₹',
+  shopName = 'FRESHMART',
+}) => {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(products[0] || null);
   const [customBarcode, setCustomBarcode] = useState('');
   const [productTitle, setProductTitle] = useState('');
   const [productPrice, setProductPrice] = useState('');
   const [barcodeFormat, setBarcodeFormat] = useState<'CODE128' | 'EAN13'>('CODE128');
-  const [labelCount, setLabelCount] = useState<number>(24);
-  const [labelsPerPage, setLabelsPerPage] = useState<'single' | 'sheet24' | 'sheet40'>('sheet24');
 
-  const svgRef = useRef<SVGSVGElement | null>(null);
+  // Label configuration options
+  const [sheetFormat, setSheetFormat] = useState<SheetFormat>('a4_24');
+  const [labelCount, setLabelCount] = useState<number>(24);
+  const [showShopName, setShowShopName] = useState(true);
+  const [showProductName, setShowProductName] = useState(true);
+  const [showPrice, setShowPrice] = useState(true);
+  const [showBarcodeText, setShowBarcodeText] = useState(true);
+
+  const previewSvgRef = useRef<SVGSVGElement | null>(null);
+  const printContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (products.length > 0 && !selectedProduct) {
@@ -31,8 +55,8 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({ products, cu
     setCustomBarcode(p.barcode);
     setProductTitle(p.name);
     setProductPrice(String(p.sellingPrice));
-    
-    // Auto-detect format
+
+    // Auto-detect EAN-13 vs Code 128
     if (p.barcode.length === 13 && /^\d+$/.test(p.barcode)) {
       setBarcodeFormat('EAN13');
     } else {
@@ -54,58 +78,118 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({ products, cu
 
   // Render preview barcode
   useEffect(() => {
-    if (svgRef.current && customBarcode) {
+    if (previewSvgRef.current && customBarcode) {
       try {
-        JsBarcode(svgRef.current, customBarcode, {
+        JsBarcode(previewSvgRef.current, customBarcode, {
           format: barcodeFormat,
           width: 2,
-          height: 60,
-          displayValue: true,
-          fontSize: 14,
+          height: 55,
+          displayValue: showBarcodeText,
+          fontSize: 13,
           font: 'monospace',
-          textMargin: 4,
-          margin: 10,
+          textMargin: 3,
+          margin: 6,
         });
       } catch (e) {
-        console.warn('Barcode render warning:', e);
+        console.warn('Preview barcode warning:', e);
       }
     }
-  }, [customBarcode, barcodeFormat]);
+  }, [customBarcode, barcodeFormat, showBarcodeText]);
 
-  const handlePrintLabels = () => {
-    window.print();
+  // When sheet format changes, update recommended label count preset
+  const handleFormatChange = (fmt: SheetFormat) => {
+    setSheetFormat(fmt);
+    if (fmt === 'a4_24') setLabelCount(24);
+    else if (fmt === 'a4_40') setLabelCount(40);
+    else if (fmt === 'a4_65') setLabelCount(65);
+    else if (fmt === 'thermal_50x30' || fmt === 'thermal_38x25') setLabelCount(10);
+  };
+
+  // Print Barcode Stickers
+  const handlePrint = () => {
+    if (!printContainerRef.current) return;
+
+    // Render barcodes into all print sticker SVGs
+    const svgs = printContainerRef.current.querySelectorAll<SVGSVGElement>('svg.print-sticker-svg');
+    svgs.forEach((svg) => {
+      try {
+        const isCompact = sheetFormat === 'a4_65' || sheetFormat === 'thermal_38x25';
+        JsBarcode(svg, customBarcode, {
+          format: barcodeFormat,
+          width: isCompact ? 1.2 : 1.6,
+          height: isCompact ? 30 : 42,
+          displayValue: showBarcodeText,
+          fontSize: isCompact ? 9 : 11,
+          font: 'monospace',
+          textMargin: 2,
+          margin: 2,
+        });
+      } catch (err) {
+        console.warn('Print render error:', err);
+      }
+    });
+
+    // Isolate printing
+    document.body.classList.add('printing-barcodes');
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => {
+        document.body.classList.remove('printing-barcodes');
+      }, 1500);
+    }, 150);
+  };
+
+  // Grid column styles for preview & print
+  const getGridColumns = (fmt: SheetFormat) => {
+    switch (fmt) {
+      case 'thermal_50x30':
+      case 'thermal_38x25':
+        return '1fr';
+      case 'a4_24':
+        return 'repeat(3, 1fr)';
+      case 'a4_40':
+        return 'repeat(4, 1fr)';
+      case 'a4_65':
+        return 'repeat(5, 1fr)';
+      default:
+        return 'repeat(3, 1fr)';
+    }
   };
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '2rem' }}>
-        {/* Controls Card */}
+      {/* Top Banner */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: '1.5rem', marginBottom: '2rem' }}>
+        {/* Left: Sticker Settings Form */}
         <div className="card">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.25rem' }}>
-            <div style={{
-              width: 32,
-              height: 32,
-              borderRadius: '8px',
-              background: 'rgba(59, 130, 246, 0.2)',
-              color: '#60a5fa',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
+            <div
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: '8px',
+                background: 'rgba(59, 130, 246, 0.2)',
+                color: '#60a5fa',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
               <Tag size={18} />
             </div>
             <div>
-              <h3 style={{ fontSize: '1.05rem', margin: 0 }}>Barcode Label Designer</h3>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Barcode Sticker Designer</h3>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
-                Generate Code 128 & EAN-13 sticker sheets
+                Generate Code 128 & EAN-13 adhesive labels
               </p>
             </div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {/* Select Product */}
             <div>
               <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                Select Existing Product (or customize below)
+                Select Product to Print
               </label>
               <select
                 value={selectedProduct?.id || ''}
@@ -114,19 +198,19 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({ products, cu
                   if (p) handleSelectProduct(p);
                 }}
               >
-                <option value="">-- Manual Custom Entry --</option>
                 {products.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name} [{p.barcode}] - {currency}{p.sellingPrice}
+                    {p.name} [{p.barcode}] — {currency}{Number(p.sellingPrice).toFixed(2)}
                   </option>
                 ))}
               </select>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+            {/* Barcode & Format */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '0.75rem' }}>
               <div>
                 <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                  Barcode Text / Value
+                  Barcode Text
                 </label>
                 <div style={{ display: 'flex', gap: '0.35rem' }}>
                   <input
@@ -138,7 +222,7 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({ products, cu
                   <button
                     className="btn-secondary"
                     onClick={handleGenerateNewCode}
-                    title="Auto-Generate New Barcode"
+                    title="Auto-Generate Unique Barcode"
                     style={{ padding: '0 0.75rem' }}
                   >
                     <RefreshCw size={15} />
@@ -148,22 +232,23 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({ products, cu
 
               <div>
                 <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                  Barcode Symbology
+                  Format
                 </label>
                 <select
                   value={barcodeFormat}
                   onChange={(e) => setBarcodeFormat(e.target.value as any)}
                 >
-                  <option value="CODE128">Code 128 (Alphanumeric / Internal)</option>
-                  <option value="EAN13">EAN-13 (Standard Retail 13-digit)</option>
+                  <option value="CODE128">Code 128 (Universal)</option>
+                  <option value="EAN13">EAN-13 (Standard Retail)</option>
                 </select>
               </div>
             </div>
 
+            {/* Title & Price */}
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.75rem' }}>
               <div>
                 <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                  Product Label Header Title
+                  Label Product Title
                 </label>
                 <input
                   type="text"
@@ -186,24 +271,27 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({ products, cu
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+            {/* Sheet Template & Copy Count */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: '0.75rem' }}>
               <div>
                 <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                  Label Print Layout
+                  Sticker Paper / Roll Format
                 </label>
                 <select
-                  value={labelsPerPage}
-                  onChange={(e) => setLabelsPerPage(e.target.value as any)}
+                  value={sheetFormat}
+                  onChange={(e) => handleFormatChange(e.target.value as any)}
                 >
-                  <option value="sheet24">A4 Sheet - 24 Labels (3 x 8 Grid)</option>
-                  <option value="sheet40">A4 Sheet - 40 Labels (4 x 10 Grid)</option>
-                  <option value="single">Single Label Roll Printer (50x30mm)</option>
+                  <option value="a4_24">A4 Sheet — 24 Labels (3x8 Grid, 70x37mm)</option>
+                  <option value="a4_40">A4 Sheet — 40 Labels (4x10 Grid, 52x30mm)</option>
+                  <option value="a4_65">A4 Sheet — 65 Labels (5x13 Grid, 38x21mm)</option>
+                  <option value="thermal_50x30">Thermal Label Roll (50x30mm Single)</option>
+                  <option value="thermal_38x25">Thermal Label Roll (38x25mm Mini)</option>
                 </select>
               </div>
 
               <div>
                 <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                  Number of Copies to Print
+                  Stickers Count
                 </label>
                 <input
                   type="number"
@@ -215,91 +303,226 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({ products, cu
               </div>
             </div>
 
+            {/* Elements Toggles */}
+            <div>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.45rem' }}>
+                Included Sticker Elements:
+              </label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={showShopName}
+                    onChange={(e) => setShowShopName(e.target.checked)}
+                    style={{ width: 'auto' }}
+                  />
+                  <span>Shop Name</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={showProductName}
+                    onChange={(e) => setShowProductName(e.target.checked)}
+                    style={{ width: 'auto' }}
+                  />
+                  <span>Product Title</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={showPrice}
+                    onChange={(e) => setShowPrice(e.target.checked)}
+                    style={{ width: 'auto' }}
+                  />
+                  <span>MRP Price</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={showBarcodeText}
+                    onChange={(e) => setShowBarcodeText(e.target.checked)}
+                    style={{ width: 'auto' }}
+                  />
+                  <span>Digits Text</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Print Action */}
             <div style={{ marginTop: '0.5rem' }}>
-              <button className="btn-primary" onClick={handlePrintLabels} style={{ width: '100%', padding: '0.75rem' }}>
+              <button
+                className="btn-primary"
+                onClick={handlePrint}
+                style={{ width: '100%', padding: '0.85rem', fontSize: '1rem', fontWeight: 700 }}
+              >
                 <Printer size={18} />
-                Print {labelCount} Barcode Labels
+                Print {labelCount} Barcode Labels Now
               </button>
             </div>
           </div>
         </div>
 
-        {/* Live Preview Card */}
+        {/* Right: Live Single Sticker Preview */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <h4 style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Single Sticker Live Preview
+          <h4
+            style={{
+              fontSize: '0.85rem',
+              color: 'var(--text-muted)',
+              marginBottom: '1rem',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+            }}
+          >
+            Live High-Resolution Sticker Preview
           </h4>
 
-          <div style={{
-            background: '#ffffff',
-            color: '#000000',
-            padding: '12px 16px',
-            borderRadius: '8px',
-            boxShadow: '0 10px 25px rgba(0, 0, 0, 0.4)',
-            textAlign: 'center',
-            width: '260px',
-            border: '1px solid #e2e8f0',
-          }}>
-            <div style={{
-              fontSize: '11px',
-              fontWeight: '700',
-              fontFamily: 'sans-serif',
-              marginBottom: '4px',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}>
-              {productTitle || 'Product Name'}
+          {/* Realistic Adhesive Sticker Card */}
+          <div
+            style={{
+              background: '#ffffff',
+              color: '#000000',
+              padding: '10px 14px',
+              borderRadius: '6px',
+              boxShadow: '0 10px 30px rgba(0, 0, 0, 0.45)',
+              textAlign: 'center',
+              width: sheetFormat.startsWith('thermal') ? '240px' : '260px',
+              border: '1px solid #cbd5e1',
+            }}
+          >
+            {showShopName && (
+              <div
+                style={{
+                  fontSize: '9px',
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  color: '#475569',
+                  marginBottom: '2px',
+                }}
+              >
+                {shopName}
+              </div>
+            )}
+
+            {showProductName && (
+              <div
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  marginBottom: '2px',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {productTitle || 'Product Name'}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'center', margin: '2px 0' }}>
+              <svg ref={previewSvgRef} style={{ maxWidth: '100%', height: '65px' }} />
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0' }}>
-              <svg ref={svgRef} style={{ maxWidth: '100%', height: '70px' }} />
-            </div>
-
-            <div style={{
-              fontSize: '13px',
-              fontWeight: '800',
-              fontFamily: 'sans-serif',
-              marginTop: '4px',
-            }}>
-              MRP: {currency}{Number(productPrice || 0).toFixed(2)}
-            </div>
+            {showPrice && (
+              <div
+                style={{
+                  fontSize: '13px',
+                  fontWeight: 800,
+                  marginTop: '2px',
+                }}
+              >
+                MRP: {currency}{Number(productPrice || 0).toFixed(2)}
+              </div>
+            )}
           </div>
 
-          <div style={{ marginTop: '1.25rem', fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-            Works with standard desktop printers (A4 adhesive sheets) and dedicated thermal label printers.
+          <div
+            style={{
+              marginTop: '1.5rem',
+              fontSize: '0.75rem',
+              color: 'var(--text-muted)',
+              textAlign: 'center',
+              maxWidth: '320px',
+              lineHeight: 1.5,
+            }}
+          >
+            Ready for standard A4 sticker paper (laser/inkjet) and direct thermal label printers. Margins are calibrated automatically.
           </div>
         </div>
       </div>
 
-      {/* Hidden Print Container for Labels */}
-      <div className="barcode-labels-print-container" style={{ display: 'none' }}>
-        <style>{`
-          @media print {
-            .barcode-labels-print-container {
-              display: grid !important;
-              grid-template-columns: ${labelsPerPage === 'single' ? '1fr' : labelsPerPage === 'sheet40' ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)'};
-              gap: 4mm;
-              padding: 5mm;
-              background: #ffffff;
-            }
-            .barcode-label-item {
-              border: 1px dashed #ccc;
-              padding: 2mm;
-              text-align: center;
-              font-family: sans-serif;
-              color: #000;
-              page-break-inside: avoid;
-            }
-          }
-        `}</style>
-        {Array.from({ length: labelCount }).map((_, i) => (
-          <div key={i} className="barcode-label-item">
-            <div style={{ fontSize: '10px', fontWeight: 'bold' }}>{productTitle}</div>
-            <div style={{ fontSize: '12px', fontWeight: 'bold' }}>MRP: {currency}{productPrice}</div>
-            <div style={{ fontSize: '9px', fontFamily: 'monospace' }}>{customBarcode}</div>
-          </div>
-        ))}
+      {/* Hidden Print Container for Barcode Labels */}
+      <div id="print-barcode-container" ref={printContainerRef}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: getGridColumns(sheetFormat),
+            gap: sheetFormat.startsWith('thermal') ? '2mm' : '3mm',
+            width: '100%',
+          }}
+        >
+          {Array.from({ length: labelCount }).map((_, i) => (
+            <div
+              key={i}
+              style={{
+                border: '1px dashed #bbb',
+                padding: sheetFormat === 'a4_65' ? '1.5mm' : '2.5mm',
+                textAlign: 'center',
+                fontFamily: 'sans-serif',
+                color: '#000000',
+                backgroundColor: '#ffffff',
+                pageBreakInside: 'avoid',
+                borderRadius: '3px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxSizing: 'border-box',
+              }}
+            >
+              {showShopName && (
+                <div
+                  style={{
+                    fontSize: sheetFormat === 'a4_65' ? '7px' : '8.5px',
+                    fontWeight: 'bold',
+                    textTransform: 'uppercase',
+                    color: '#333',
+                  }}
+                >
+                  {shopName}
+                </div>
+              )}
+
+              {showProductName && (
+                <div
+                  style={{
+                    fontSize: sheetFormat === 'a4_65' ? '8px' : '10px',
+                    fontWeight: 'bold',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    maxWidth: '100%',
+                  }}
+                >
+                  {productTitle}
+                </div>
+              )}
+
+              <svg className="print-sticker-svg" style={{ maxWidth: '100%', margin: '1px 0' }} />
+
+              {showPrice && (
+                <div
+                  style={{
+                    fontSize: sheetFormat === 'a4_65' ? '9px' : '11px',
+                    fontWeight: 'bold',
+                  }}
+                >
+                  MRP: {currency}{Number(productPrice || 0).toFixed(2)}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
