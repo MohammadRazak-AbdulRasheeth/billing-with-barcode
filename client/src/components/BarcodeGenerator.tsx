@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import JsBarcode from 'jsbarcode';
 import {
   Printer,
   RefreshCw,
-  Layers,
-  Sparkles,
   Tag,
   Check,
   Eye,
@@ -41,8 +40,8 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
   const [showPrice, setShowPrice] = useState(true);
   const [showBarcodeText, setShowBarcodeText] = useState(true);
 
-  const previewSvgRef = useRef<SVGSVGElement | null>(null);
-  const printContainerRef = useRef<HTMLDivElement | null>(null);
+  // Active print flag
+  const [isPrinting, setIsPrinting] = useState(false);
 
   useEffect(() => {
     if (products.length > 0 && !selectedProduct) {
@@ -76,25 +75,30 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
     }
   };
 
-  // Render preview barcode
-  useEffect(() => {
-    if (previewSvgRef.current && customBarcode) {
-      try {
-        JsBarcode(previewSvgRef.current, customBarcode, {
-          format: barcodeFormat,
-          width: 2,
-          height: 55,
-          displayValue: showBarcodeText,
-          fontSize: 13,
-          font: 'monospace',
-          textMargin: 3,
-          margin: 6,
-        });
-      } catch (e) {
-        console.warn('Preview barcode warning:', e);
-      }
+  // Generate high-resolution barcode image data URL
+  const barcodeImageDataUrl = useMemo(() => {
+    if (!customBarcode) return '';
+    try {
+      const canvas = document.createElement('canvas');
+      const isCompact = sheetFormat === 'a4_65' || sheetFormat === 'thermal_38x25';
+      JsBarcode(canvas, customBarcode, {
+        format: barcodeFormat,
+        width: isCompact ? 1.5 : 2,
+        height: isCompact ? 36 : 50,
+        displayValue: showBarcodeText,
+        fontSize: isCompact ? 10 : 13,
+        font: 'monospace',
+        textMargin: 3,
+        margin: 4,
+        background: '#ffffff',
+        lineColor: '#000000',
+      });
+      return canvas.toDataURL('image/png');
+    } catch (e) {
+      console.warn('Barcode generation warning:', e);
+      return '';
     }
-  }, [customBarcode, barcodeFormat, showBarcodeText]);
+  }, [customBarcode, barcodeFormat, showBarcodeText, sheetFormat]);
 
   // When sheet format changes, update recommended label count preset
   const handleFormatChange = (fmt: SheetFormat) => {
@@ -105,37 +109,14 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
     else if (fmt === 'thermal_50x30' || fmt === 'thermal_38x25') setLabelCount(10);
   };
 
-  // Print Barcode Stickers
+  // Print Barcode Stickers via print-portal
   const handlePrint = () => {
-    if (!printContainerRef.current) return;
-
-    // Render barcodes into all print sticker SVGs
-    const svgs = printContainerRef.current.querySelectorAll<SVGSVGElement>('svg.print-sticker-svg');
-    svgs.forEach((svg) => {
-      try {
-        const isCompact = sheetFormat === 'a4_65' || sheetFormat === 'thermal_38x25';
-        JsBarcode(svg, customBarcode, {
-          format: barcodeFormat,
-          width: isCompact ? 1.2 : 1.6,
-          height: isCompact ? 30 : 42,
-          displayValue: showBarcodeText,
-          fontSize: isCompact ? 9 : 11,
-          font: 'monospace',
-          textMargin: 2,
-          margin: 2,
-        });
-      } catch (err) {
-        console.warn('Print render error:', err);
-      }
-    });
-
-    // Isolate printing
-    document.body.classList.add('printing-barcodes');
+    setIsPrinting(true);
     setTimeout(() => {
       window.print();
       setTimeout(() => {
-        document.body.classList.remove('printing-barcodes');
-      }, 1500);
+        setIsPrinting(false);
+      }, 1000);
     }, 150);
   };
 
@@ -155,6 +136,8 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
         return 'repeat(3, 1fr)';
     }
   };
+
+  const portalRoot = typeof document !== 'undefined' ? document.getElementById('print-portal') : null;
 
   return (
     <div>
@@ -381,9 +364,9 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
             style={{
               background: '#ffffff',
               color: '#000000',
-              padding: '10px 14px',
+              padding: '12px 14px',
               borderRadius: '6px',
-              boxShadow: '0 10px 30px rgba(0, 0, 0, 0.45)',
+              boxShadow: '0 12px 35px rgba(0, 0, 0, 0.45)',
               textAlign: 'center',
               width: sheetFormat.startsWith('thermal') ? '240px' : '260px',
               border: '1px solid #cbd5e1',
@@ -409,7 +392,7 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                 style={{
                   fontSize: '11px',
                   fontWeight: 700,
-                  marginBottom: '2px',
+                  marginBottom: '4px',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
@@ -419,16 +402,24 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
               </div>
             )}
 
-            <div style={{ display: 'flex', justifyContent: 'center', margin: '2px 0' }}>
-              <svg ref={previewSvgRef} style={{ maxWidth: '100%', height: '65px' }} />
-            </div>
+            {barcodeImageDataUrl ? (
+              <div style={{ display: 'flex', justifyContent: 'center', margin: '2px 0' }}>
+                <img
+                  src={barcodeImageDataUrl}
+                  alt="Barcode Preview"
+                  style={{ maxWidth: '100%', height: 'auto', display: 'block' }}
+                />
+              </div>
+            ) : (
+              <div style={{ padding: '1rem', color: '#888', fontSize: '0.8rem' }}>Generating barcode...</div>
+            )}
 
             {showPrice && (
               <div
                 style={{
                   fontSize: '13px',
                   fontWeight: 800,
-                  marginTop: '2px',
+                  marginTop: '4px',
                 }}
               >
                 MRP: {currency}{Number(productPrice || 0).toFixed(2)}
@@ -451,79 +442,94 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
         </div>
       </div>
 
-      {/* Hidden Print Container for Barcode Labels */}
-      <div id="print-barcode-container" ref={printContainerRef}>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: getGridColumns(sheetFormat),
-            gap: sheetFormat.startsWith('thermal') ? '2mm' : '3mm',
-            width: '100%',
-          }}
-        >
-          {Array.from({ length: labelCount }).map((_, i) => (
-            <div
-              key={i}
-              style={{
-                border: '1px dashed #bbb',
-                padding: sheetFormat === 'a4_65' ? '1.5mm' : '2.5mm',
-                textAlign: 'center',
-                fontFamily: 'sans-serif',
-                color: '#000000',
-                backgroundColor: '#ffffff',
-                pageBreakInside: 'avoid',
-                borderRadius: '3px',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxSizing: 'border-box',
-              }}
-            >
-              {showShopName && (
-                <div
-                  style={{
-                    fontSize: sheetFormat === 'a4_65' ? '7px' : '8.5px',
-                    fontWeight: 'bold',
-                    textTransform: 'uppercase',
-                    color: '#333',
-                  }}
-                >
-                  {shopName}
-                </div>
-              )}
+      {/* Real Physical Print Portal Render */}
+      {isPrinting &&
+        portalRoot &&
+        createPortal(
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: getGridColumns(sheetFormat),
+              gap: sheetFormat.startsWith('thermal') ? '2mm' : '3mm',
+              width: '100%',
+              margin: '0 auto',
+              padding: '4mm',
+              boxSizing: 'border-box',
+              backgroundColor: '#ffffff',
+            }}
+          >
+            {Array.from({ length: labelCount }).map((_, i) => (
+              <div
+                key={i}
+                style={{
+                  border: '1px dashed #bbb',
+                  padding: sheetFormat === 'a4_65' ? '1.5mm' : '2.5mm',
+                  textAlign: 'center',
+                  fontFamily: 'sans-serif',
+                  color: '#000000',
+                  backgroundColor: '#ffffff',
+                  pageBreakInside: 'avoid',
+                  borderRadius: '3px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxSizing: 'border-box',
+                }}
+              >
+                {showShopName && (
+                  <div
+                    style={{
+                      fontSize: sheetFormat === 'a4_65' ? '7px' : '8.5px',
+                      fontWeight: 'bold',
+                      textTransform: 'uppercase',
+                      color: '#333',
+                    }}
+                  >
+                    {shopName}
+                  </div>
+                )}
 
-              {showProductName && (
-                <div
-                  style={{
-                    fontSize: sheetFormat === 'a4_65' ? '8px' : '10px',
-                    fontWeight: 'bold',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    maxWidth: '100%',
-                  }}
-                >
-                  {productTitle}
-                </div>
-              )}
+                {showProductName && (
+                  <div
+                    style={{
+                      fontSize: sheetFormat === 'a4_65' ? '8px' : '10px',
+                      fontWeight: 'bold',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      maxWidth: '100%',
+                      margin: '1px 0',
+                    }}
+                  >
+                    {productTitle}
+                  </div>
+                )}
 
-              <svg className="print-sticker-svg" style={{ maxWidth: '100%', margin: '1px 0' }} />
+                {barcodeImageDataUrl && (
+                  <img
+                    src={barcodeImageDataUrl}
+                    alt="Sticker Barcode"
+                    style={{ maxWidth: '100%', height: 'auto', display: 'block', margin: '1px 0' }}
+                  />
+                )}
 
-              {showPrice && (
-                <div
-                  style={{
-                    fontSize: sheetFormat === 'a4_65' ? '9px' : '11px',
-                    fontWeight: 'bold',
-                  }}
-                >
-                  MRP: {currency}{Number(productPrice || 0).toFixed(2)}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
+                {showPrice && (
+                  <div
+                    style={{
+                      fontSize: sheetFormat === 'a4_65' ? '9px' : '11px',
+                      fontWeight: 'bold',
+                      marginTop: '1px',
+                    }}
+                  >
+                    MRP: {currency}{Number(productPrice || 0).toFixed(2)}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>,
+          portalRoot
+        )}
     </div>
   );
 };

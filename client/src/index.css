@@ -451,23 +451,37 @@ button {
 }
 
 /* ==========================================================
-   ADVANCED PRINTING SYSTEM (Thermal Receipts & Barcode Labels)
+   ADVANCED PRINTING SYSTEM (#print-portal Isolation)
    ========================================================== */
-#print-thermal-container,
-#print-barcode-container {
+#print-portal {
   display: none;
 }
 
-@media print {
-  /* Hide all regular UI when printing */
-  html, body {
-    background: #ffffff !important;
-    color: #000000 !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    width: 100% !important;
-  }
+/* Realistic Paper Receipt on-screen display */
+.paper-receipt-card {
+  background: #ffffff;
+  color: #111827;
+  font-family: var(--font-mono);
+  border-radius: 8px;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4), 0 3px 10px rgba(0, 0, 0, 0.2);
+  border: 1px solid #e2e8f0;
+  position: relative;
+  overflow: hidden;
+}
 
+.paper-receipt-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #3b82f6, #10b981, #f59e0b, #ec4899);
+}
+
+@media print {
+  /* Hide the entire React Application */
+  #root,
   .app-container,
   .header-nav,
   .main-content,
@@ -476,32 +490,29 @@ button {
     display: none !important;
   }
 
+  /* Show ONLY the #print-portal container */
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  #print-portal {
+    display: block !important;
+    position: static !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
   @page {
     margin: 0;
     size: auto;
-  }
-
-  /* When printing Thermal Receipts */
-  body.printing-thermal #print-thermal-container {
-    display: block !important;
-    position: absolute;
-    left: 0;
-    top: 0;
-    margin: 0 auto !important;
-    background: #ffffff !important;
-    color: #000000 !important;
-  }
-
-  /* When printing Barcode Sticker Sheets */
-  body.printing-barcodes #print-barcode-container {
-    display: block !important;
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100% !important;
-    margin: 0 !important;
-    padding: 4mm !important;
-    background: #ffffff !important;
-    color: #000000 !important;
   }
 }

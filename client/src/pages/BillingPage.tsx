@@ -17,6 +17,7 @@ import {
 import { Product, CartItem, Invoice, SettingsMap } from '../types';
 import { api } from '../services/api';
 import { playBeepSuccess, playBeepError } from '../utils/audio';
+import { ThermalReceipt } from '../components/ThermalReceipt';
 
 interface BillingPageProps {
   cart: CartItem[];
@@ -760,50 +761,25 @@ export const BillingPage: React.FC<BillingPageProps> = ({
 
               <div
                 style={{
-                  background: 'var(--bg-input)',
-                  borderRadius: '12px',
-                  padding: '1rem',
-                  margin: '1.25rem 0',
-                  border: '1px solid var(--border-subtle)',
-                  textAlign: 'left',
+                  maxHeight: '340px',
+                  overflowY: 'auto',
+                  margin: '1rem 0',
+                  padding: '4px',
                   display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.5rem',
-                  fontSize: '0.85rem',
+                  justifyContent: 'center',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>Amount Paid:</span>
-                  <strong style={{ fontSize: '1.1rem', color: '#38bdf8' }}>
-                    {currency} {Number(completedSale.invoice.totalAmount).toFixed(2)}
-                  </strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>Payment Tender:</span>
-                  <strong>{completedSale.invoice.paymentMethod}</strong>
-                </div>
-
-                {completedSale.invoice.paymentMethod === 'CASH' && completedSale.changeDue > 0 && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-                      paddingTop: '0.5rem',
-                      color: '#34d399',
-                      fontWeight: 700,
-                    }}
-                  >
-                    <span>Change to Return:</span>
-                    <span style={{ fontSize: '1.1rem' }}>
-                      {currency} {completedSale.changeDue.toFixed(2)}
-                    </span>
-                  </div>
-                )}
+                <ThermalReceipt
+                  invoice={completedSale.invoice}
+                  settings={settings}
+                  cashReceived={completedSale.cashReceived}
+                  changeDue={completedSale.changeDue}
+                  isPreview={true}
+                />
               </div>
 
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
-                Receipt sent to thermal printer.
+                Receipt sent to 80mm/58mm thermal printer.
               </p>
             </div>
 
