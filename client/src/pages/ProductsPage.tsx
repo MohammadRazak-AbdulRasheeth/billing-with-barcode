@@ -180,23 +180,23 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
   return (
     <div>
       {/* Top Action Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, minWidth: '300px' }}>
-          <div style={{ position: 'relative', flex: 1, maxWidth: '420px' }}>
+      <div className="products-action-bar">
+        <div className="products-filter-group">
+          <div className="products-search-box">
             <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
             <input
               type="text"
               placeholder="Search products by name, barcode, or SKU..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              style={{ paddingLeft: '2.5rem' }}
+              style={{ paddingLeft: '2.5rem', width: '100%' }}
             />
           </div>
 
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            style={{ width: '160px' }}
+            className="products-category-select"
           >
             {categories.map((c) => (
               <option key={c} value={c}>
@@ -206,7 +206,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
           </select>
 
           <button
-            className={`btn-secondary ${showLowStockOnly ? 'active' : ''}`}
+            className={`btn-secondary products-low-stock-btn ${showLowStockOnly ? 'active' : ''}`}
             onClick={() => setShowLowStockOnly(!showLowStockOnly)}
             style={{
               padding: '0.55rem 0.9rem',
@@ -216,11 +216,11 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
             }}
           >
             <AlertTriangle size={15} />
-            <span>Low Stock Only</span>
+            <span>Low Stock</span>
           </button>
         </div>
 
-        <button className="btn-primary" onClick={handleOpenAdd}>
+        <button className="btn-primary products-add-btn" onClick={handleOpenAdd}>
           <Plus size={18} />
           <span>Add New Product</span>
         </button>
@@ -384,7 +384,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                   />
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div className="form-grid-2">
                   <div>
                     <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
                       Barcode (EAN-13 / Code 128) *
@@ -411,7 +411,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div className="form-grid-2">
                   <div>
                     <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
                       Selling Price ({currency}) *
@@ -440,7 +440,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div className="form-grid-2">
                   <div>
                     <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
                       Category

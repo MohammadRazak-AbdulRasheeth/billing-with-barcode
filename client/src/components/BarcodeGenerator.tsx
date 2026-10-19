@@ -181,7 +181,7 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
   return (
     <div>
       {/* Top Banner */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: '1.5rem', marginBottom: '2rem' }}>
+      <div className="barcode-generator-layout">
         {/* Left: Sticker Settings Form */}
         <div className="card">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.25rem' }}>

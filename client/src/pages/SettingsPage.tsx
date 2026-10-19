@@ -122,7 +122,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSettings
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+            <div className="form-grid-2">
               <div>
                 <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
                   Contact Phone Number
@@ -148,7 +148,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSettings
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+            <div className="form-grid-2">
               <div>
                 <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
                   Currency Symbol
