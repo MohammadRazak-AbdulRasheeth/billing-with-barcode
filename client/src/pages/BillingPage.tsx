@@ -236,7 +236,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '1.25rem' }}>
+    <div className="pos-billing-layout">
       {/* Left Column: Search & Cart Items */}
       <div>
         {/* Top Action Bar: Search & Quick Barcode */}
@@ -802,6 +802,27 @@ export const BillingPage: React.FC<BillingPageProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Mobile Floating Checkout Summary Banner */}
+      {cart.length > 0 && !showCheckoutModal && !completedSale && (
+        <div className="mobile-checkout-bar">
+          <div className="mobile-checkout-info">
+            <span className="mobile-checkout-count">
+              {cart.reduce((a, b) => a + b.quantity, 0)} {cart.reduce((a, b) => a + b.quantity, 0) === 1 ? 'item' : 'items'}
+            </span>
+            <span className="mobile-checkout-total">
+              {currency}{netPayable.toFixed(2)}
+            </span>
+          </div>
+          <button
+            className="btn-primary mobile-checkout-btn"
+            onClick={() => setShowCheckoutModal(true)}
+          >
+            <Banknote size={16} />
+            <span>Pay (F8)</span>
+          </button>
         </div>
       )}
     </div>

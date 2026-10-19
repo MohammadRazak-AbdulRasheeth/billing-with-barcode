@@ -487,6 +487,198 @@ button {
 }
 
 /* ==========================================================
+   RESPONSIVE DESIGN & MOBILE OPTIMIZATIONS
+   ========================================================== */
+
+/* POS Billing Layout */
+.pos-billing-layout {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+/* Header Top Bar Default (Desktop) */
+.header-top-bar {
+  display: contents;
+}
+
+/* Mobile Checkout Bar (Hidden on desktop) */
+.mobile-checkout-bar {
+  display: none;
+}
+
+/* Tablet & Smaller Screens (<= 1024px) */
+@media (max-width: 1024px) {
+  .header-nav {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+    padding: 0.65rem 1rem;
+  }
+
+  .header-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .nav-tabs {
+    display: flex;
+    overflow-x: auto;
+    white-space: nowrap;
+    width: 100%;
+    -webkit-overflow-scrolling: touch;
+    padding: 0.3rem;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .nav-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-tab-btn {
+    flex-shrink: 0;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.82rem;
+  }
+}
+
+/* Medium Screens & Tablets (<= 980px) */
+@media (max-width: 980px) {
+  .pos-billing-layout {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .main-content {
+    padding: 0.85rem 1rem 5.5rem 1rem;
+  }
+
+  .mobile-checkout-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 0.75rem 1.25rem;
+    background: rgba(17, 24, 39, 0.96);
+    backdrop-filter: blur(14px);
+    border-top: 1px solid var(--border-subtle);
+    box-shadow: 0 -4px 25px rgba(0, 0, 0, 0.5);
+    z-index: 50;
+    animation: slideUpBar 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes slideUpBar {
+    from {
+      opacity: 0;
+      transform: translateY(100%);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .mobile-checkout-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+
+  .mobile-checkout-count {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+  }
+
+  .mobile-checkout-total {
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: #38bdf8;
+    letter-spacing: -0.02em;
+    font-family: var(--font-sans);
+  }
+
+  .mobile-checkout-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.65rem 1.25rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 14px var(--primary-glow);
+  }
+}
+
+/* Mobile Phones (<= 640px) */
+@media (max-width: 640px) {
+  .header-nav {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .brand-text h1 {
+    font-size: 0.92rem;
+  }
+
+  .brand-text span {
+    display: none;
+  }
+
+  .brand-logo-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .status-badge {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.7rem;
+  }
+
+  .btn-pair-scanner {
+    padding: 0.35rem 0.65rem;
+    font-size: 0.75rem;
+  }
+
+  .main-content {
+    padding: 0.65rem 0.65rem 5.5rem 0.65rem;
+  }
+
+  .card {
+    padding: 1rem;
+  }
+
+  .modal-overlay {
+    padding: 0.5rem;
+    align-items: flex-end;
+  }
+
+  .modal-card {
+    max-height: 90vh;
+    overflow-y: auto;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  /* Form inputs touch-friendly */
+  input[type="text"],
+  input[type="number"],
+  select,
+  textarea {
+    font-size: 16px !important; /* Prevents iOS auto-zoom on input focus */
+  }
+}
+
+
+/* ==========================================================
    ADVANCED PRINTING SYSTEM (#print-portal Isolation)
    ========================================================== */
 #print-portal {

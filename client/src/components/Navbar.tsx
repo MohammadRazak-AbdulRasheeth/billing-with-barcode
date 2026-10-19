@@ -36,17 +36,32 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="header-nav">
-      <div className="brand-section">
-        <div className="brand-logo-icon">
-          <Barcode size={22} />
+      <div className="header-top-bar">
+        <div className="brand-section">
+          <div className="brand-logo-icon">
+            <Barcode size={22} />
+          </div>
+          <div className="brand-text">
+            <h1>{shopName}</h1>
+            <span>Smart POS & Mobile Scanner</span>
+          </div>
         </div>
-        <div className="brand-text">
-          <h1>{shopName}</h1>
-          <span>Smart POS & Mobile Scanner</span>
+
+        <div className="header-actions">
+          <div className={`status-badge ${isScannerConnected ? '' : 'offline'}`} title={isScannerConnected ? 'Mobile scanner connected' : 'Mobile scanner disconnected'}>
+            <span className="status-dot" />
+            <Smartphone size={14} />
+            <span className="status-text">{isScannerConnected ? 'Scanner Online' : 'Offline'}</span>
+          </div>
+
+          <button className="btn-pair-scanner" onClick={onOpenScannerQR} title="Pair mobile phone camera scanner">
+            <QrCode size={15} />
+            <span className="pair-btn-text">Pair Phone</span>
+          </button>
         </div>
       </div>
 
-      <nav className="nav-tabs">
+      <nav className="nav-tabs" aria-label="Main Navigation">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -62,19 +77,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           );
         })}
       </nav>
-
-      <div className="header-actions">
-        <div className={`status-badge ${isScannerConnected ? '' : 'offline'}`}>
-          <span className="status-dot" />
-          <Smartphone size={14} />
-          <span>{isScannerConnected ? 'Mobile Scanner Online' : 'Scanner Offline'}</span>
-        </div>
-
-        <button className="btn-pair-scanner" onClick={onOpenScannerQR}>
-          <QrCode size={15} />
-          <span>Pair Phone</span>
-        </button>
-      </div>
     </header>
   );
 };
