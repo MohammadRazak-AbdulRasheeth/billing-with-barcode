@@ -16,6 +16,8 @@ interface NavbarProps {
   isScannerConnected: boolean;
   onOpenScannerQR: () => void;
   shopName?: string;
+  terminalName?: string;
+  onDisconnectScanner?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -24,6 +26,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   isScannerConnected,
   onOpenScannerQR,
   shopName = 'POS Billing',
+  terminalName = 'Counter 1',
+  onDisconnectScanner,
 }) => {
   const tabs = [
     { id: 'billing', label: 'POS Billing', icon: ShoppingCart },
@@ -48,15 +52,15 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         <div className="header-actions">
-          <div className={`status-badge ${isScannerConnected ? '' : 'offline'}`} title={isScannerConnected ? 'Mobile scanner connected' : 'Mobile scanner disconnected'}>
+          <div className={`status-badge ${isScannerConnected ? '' : 'offline'}`} title={isScannerConnected ? `Mobile scanner connected exclusively to ${terminalName}` : `No scanner paired to ${terminalName}`}>
             <span className="status-dot" />
             <Smartphone size={14} />
-            <span className="status-text">{isScannerConnected ? 'Scanner Online' : 'Offline'}</span>
+            <span className="status-text">{isScannerConnected ? `${terminalName}: Online` : `${terminalName}: No Phone`}</span>
           </div>
 
           <button className="btn-pair-scanner" onClick={onOpenScannerQR} title="Pair mobile phone camera scanner">
             <QrCode size={15} />
-            <span className="pair-btn-text">Pair Phone</span>
+            <span className="pair-btn-text">{isScannerConnected ? 'Manage Phone' : 'Pair Phone'}</span>
           </button>
         </div>
       </div>

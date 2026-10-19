@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import {
   Camera,
   Pause,
@@ -17,9 +17,19 @@ import {
   ShoppingCart,
   Delete,
   CornerDownLeft,
+  Unplug,
+  Shield,
+  Key,
+  QrCode,
 } from 'lucide-react';
-import { socket, joinPosSession } from '../services/socket';
+import { socket } from '../services/socket';
 import { playBeepSuccess, playBeepError, triggerHaptic } from '../utils/audio';
+
+interface PairedSession {
+  sessionId: string;
+  authKey: string;
+  terminalName: string;
+}
 
 export const MobileScannerPage: React.FC = () => {
   const [isScanning, setIsScanning] = useState(false);
@@ -27,6 +37,19 @@ export const MobileScannerPage: React.FC = () => {
   const [cameraActive, setCameraActive] = useState(false);
   const [isTorchOn, setIsTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
+
+  // Authentication & Counter Pairing State
+  const [pairedSession, setPairedSession] = useState<PairedSession | null>(() => {
+    try {
+      const raw = sessionStorage.getItem('pos_scanner_paired');
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return null;
+  });
+  const [pairingError, setPairingError] = useState<string | null>(null);
+  const [showManualPairModal, setShowManualPairModal] = useState(false);
+  const [manualSessionInput, setManualSessionInput] = useState('');
+  const [manualKeyInput, setManualKeyInput] = useState('');
 
   const [lastScanned, setLastScanned] = useState<{
     code: string;
@@ -58,6 +81,11 @@ export const MobileScannerPage: React.FC = () => {
   const scanIntervalRef = useRef<number | null>(null);
   const lastScannedTimeRef = useRef<number>(0);
   const lastScannedCodeRef = useRef<string>('');
+  const pairedSessionRef = useRef<PairedSession | null>(pairedSession);
+
+  useEffect(() => {
+    pairedSessionRef.current = pairedSession;
+  }, [pairedSession]);
 
   useEffect(() => {
     // Check if browser context is secure
@@ -65,9 +93,53 @@ export const MobileScannerPage: React.FC = () => {
       setIsSecure(false);
     }
 
-    joinPosSession();
+    // Auto-pair if session & key are present in URL search parameters
+    const params = new URLSearchParams(window.location.search);
+    const urlSession = params.get('session');
+    const urlKey = params.get('key');
+    const urlName = params.get('name') || 'Billing Counter';
 
-    const handleConnect = () => setIsConnected(true);
+    const connectWithCredentials = (sId: string, aKey: string, tName?: string) => {
+      socket.emit(
+        'pair-scanner',
+        { sessionId: sId, authKey: aKey, scannerName: 'Mobile Scanner' },
+        (res: any) => {
+          if (res && res.success) {
+            const paired: PairedSession = {
+              sessionId: sId,
+              authKey: aKey,
+              terminalName: res.terminalName || tName || 'Counter',
+            };
+            setPairedSession(paired);
+            sessionStorage.setItem('pos_scanner_paired', JSON.stringify(paired));
+            setPairingError(null);
+            playBeepSuccess();
+            triggerHaptic('success');
+          } else {
+            setPairingError(res?.error || 'Authentication key failed or expired.');
+            setPairedSession(null);
+            sessionStorage.removeItem('pos_scanner_paired');
+          }
+        }
+      );
+    };
+
+    if (urlSession && urlKey) {
+      connectWithCredentials(urlSession, urlKey, urlName);
+    } else if (pairedSession) {
+      connectWithCredentials(pairedSession.sessionId, pairedSession.authKey, pairedSession.terminalName);
+    }
+
+    const handleConnect = () => {
+      setIsConnected(true);
+      if (pairedSessionRef.current) {
+        connectWithCredentials(
+          pairedSessionRef.current.sessionId,
+          pairedSessionRef.current.authKey,
+          pairedSessionRef.current.terminalName
+        );
+      }
+    };
     const handleDisconnect = () => setIsConnected(false);
 
     // Listen for live laptop cart updates
@@ -75,17 +147,27 @@ export const MobileScannerPage: React.FC = () => {
       setCartSummary({ count: data.count, total: data.total });
     };
 
+    // When the laptop terminal kicks or disconnects this scanner
+    const handleForceDisconnect = (data: { message?: string }) => {
+      alert(data?.message || 'Disconnected by Billing Counter.');
+      setPairedSession(null);
+      sessionStorage.removeItem('pos_scanner_paired');
+      window.history.replaceState({}, '', '/scanner');
+    };
+
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
     socket.on('cart-summary-updated', handleCartSummary);
+    socket.on('force-disconnected', handleForceDisconnect);
 
-    // Auto-attempt start
+    // Auto-attempt camera start
     startCamera();
 
     return () => {
       socket.off('connect', handleConnect);
       socket.off('disconnect', handleDisconnect);
       socket.off('cart-summary-updated', handleCartSummary);
+      socket.off('force-disconnected', handleForceDisconnect);
       stopCamera();
     };
   }, []);
@@ -292,6 +374,52 @@ export const MobileScannerPage: React.FC = () => {
     const code = rawCode.trim();
     if (!code) return;
 
+    // 1. Check if the scanned code is a Counter Terminal Pairing QR Code!
+    if (code.includes('session=') && code.includes('key=')) {
+      try {
+        const urlStr = code.startsWith('http') ? code : `https://domain.local/${code.replace(/^\/?/, '')}`;
+        const parsedUrl = new URL(urlStr);
+        const sId = parsedUrl.searchParams.get('session');
+        const aKey = parsedUrl.searchParams.get('key');
+        const tName = parsedUrl.searchParams.get('name') || 'Billing Counter';
+
+        if (sId && aKey) {
+          socket.emit(
+            'pair-scanner',
+            { sessionId: sId, authKey: aKey, scannerName: 'Mobile Scanner' },
+            (res: any) => {
+              if (res && res.success) {
+                const paired: PairedSession = {
+                  sessionId: sId,
+                  authKey: aKey,
+                  terminalName: res.terminalName || tName,
+                };
+                setPairedSession(paired);
+                sessionStorage.setItem('pos_scanner_paired', JSON.stringify(paired));
+                setPairingError(null);
+                if (soundEnabled) playBeepSuccess();
+                triggerHaptic('success');
+              } else {
+                setPairingError(res?.error || 'Failed to authenticate pairing key.');
+                if (soundEnabled) playBeepError();
+              }
+            }
+          );
+          return;
+        }
+      } catch (err) {
+        // Not a URL QR code, proceed to product barcode handling
+      }
+    }
+
+    // 2. If scanner is not paired to any counter yet, warn user
+    if (!pairedSessionRef.current) {
+      if (soundEnabled) playBeepError();
+      triggerHaptic('error');
+      setPairingError('Scanner is not paired! Point camera at your laptop counter QR code to pair.');
+      return;
+    }
+
     const now = Date.now();
     if (code === lastScannedCodeRef.current && now - lastScannedTimeRef.current < 900) {
       return;
@@ -300,31 +428,83 @@ export const MobileScannerPage: React.FC = () => {
     lastScannedCodeRef.current = code;
     lastScannedTimeRef.current = now;
 
-    // Transmit to Laptop Billing Cart over LAN WebSocket (<15ms)
-    socket.emit('scan-barcode', { barcode: code }, (response: any) => {
-      const isSuccess = response && response.success;
-      if (isSuccess) {
-        if (soundEnabled) playBeepSuccess();
-        triggerHaptic('success');
-        setLastScanned({
-          code,
-          productName: response.productName,
-          price: response.sellingPrice,
-          stock: response.stock,
-          success: true,
-          timestamp: new Date().toLocaleTimeString(),
-        });
-      } else {
-        if (soundEnabled) playBeepError();
-        triggerHaptic('error');
-        setLastScanned({
-          code,
-          productName: 'Product Not Found in Catalog',
-          success: false,
-          timestamp: new Date().toLocaleTimeString(),
-        });
+    // Transmit to the specifically paired laptop counter over WebSocket (<15ms)
+    socket.emit(
+      'scan-barcode',
+      {
+        barcode: code,
+        sessionId: pairedSessionRef.current.sessionId,
+        authKey: pairedSessionRef.current.authKey,
+      },
+      (response: any) => {
+        const isSuccess = response && response.success;
+        if (isSuccess) {
+          if (soundEnabled) playBeepSuccess();
+          triggerHaptic('success');
+          setLastScanned({
+            code,
+            productName: response.productName,
+            price: response.sellingPrice,
+            stock: response.stock,
+            success: true,
+            timestamp: new Date().toLocaleTimeString(),
+          });
+        } else {
+          if (soundEnabled) playBeepError();
+          triggerHaptic('error');
+          setLastScanned({
+            code,
+            productName: response?.error || 'Product Not Found in Catalog',
+            success: false,
+            timestamp: new Date().toLocaleTimeString(),
+          });
+        }
       }
-    });
+    );
+  };
+
+  const handleDisconnectScanner = () => {
+    if (pairedSessionRef.current) {
+      if (window.confirm(`Disconnect from ${pairedSessionRef.current.terminalName}?`)) {
+        socket.emit('unpair-scanner', { sessionId: pairedSessionRef.current.sessionId });
+        setPairedSession(null);
+        sessionStorage.removeItem('pos_scanner_paired');
+        window.history.replaceState({}, '', '/scanner');
+      }
+    }
+  };
+
+  const handleManualPairSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualSessionInput.trim() || !manualKeyInput.trim()) return;
+
+    socket.emit(
+      'pair-scanner',
+      {
+        sessionId: manualSessionInput.trim(),
+        authKey: manualKeyInput.trim().toUpperCase(),
+        scannerName: 'Mobile Scanner',
+      },
+      (res: any) => {
+        if (res && res.success) {
+          const paired: PairedSession = {
+            sessionId: manualSessionInput.trim(),
+            authKey: manualKeyInput.trim().toUpperCase(),
+            terminalName: res.terminalName || 'Counter',
+          };
+          setPairedSession(paired);
+          sessionStorage.setItem('pos_scanner_paired', JSON.stringify(paired));
+          setShowManualPairModal(false);
+          setPairingError(null);
+          setManualSessionInput('');
+          setManualKeyInput('');
+          playBeepSuccess();
+          triggerHaptic('success');
+        } else {
+          setPairingError(res?.error || 'Invalid session or auth key.');
+        }
+      }
+    );
   };
 
   // Keypad Handlers
@@ -357,7 +537,7 @@ export const MobileScannerPage: React.FC = () => {
         margin: '0 auto',
       }}
     >
-      {/* Top Bar */}
+      {/* Top Header Bar */}
       <div
         style={{
           display: 'flex',
@@ -385,12 +565,12 @@ export const MobileScannerPage: React.FC = () => {
           </div>
           <div>
             <div style={{ fontWeight: 800, fontSize: '0.95rem', letterSpacing: '-0.01em' }}>
-              POS Wireless Scanner
+              {pairedSession ? pairedSession.terminalName : 'POS Scanner'}
             </div>
             <div
               style={{
                 fontSize: '0.7rem',
-                color: isConnected ? '#34d399' : '#f87171',
+                color: pairedSession && isConnected ? '#34d399' : '#f59e0b',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.35rem',
@@ -403,16 +583,43 @@ export const MobileScannerPage: React.FC = () => {
                   height: 6,
                   borderRadius: '50%',
                   background: 'currentColor',
-                  boxShadow: isConnected ? '0 0 8px #34d399' : 'none',
+                  boxShadow: pairedSession && isConnected ? '0 0 8px #34d399' : 'none',
                 }}
               />
-              {isConnected ? 'Synced with Laptop Cart (<15ms)' : 'Connecting to Laptop...'}
+              {pairedSession
+                ? isConnected
+                  ? `Paired & Synced (<15ms)`
+                  : 'Reconnecting to counter...'
+                : 'Not Paired'}
             </div>
           </div>
         </div>
 
-        {/* Action Controls */}
-        <div style={{ display: 'flex', gap: '0.35rem' }}>
+        {/* Action Controls & Disconnect Button */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          {pairedSession && (
+            <button
+              onClick={handleDisconnectScanner}
+              style={{
+                background: 'rgba(239, 68, 68, 0.2)',
+                color: '#f87171',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                borderRadius: '8px',
+                padding: '0.35rem 0.55rem',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+                cursor: 'pointer',
+              }}
+              title={`Disconnect from ${pairedSession.terminalName}`}
+            >
+              <Unplug size={12} />
+              <span>Disconnect</span>
+            </button>
+          )}
+
           {torchSupported && (
             <button
               onClick={toggleTorch}
@@ -425,7 +632,7 @@ export const MobileScannerPage: React.FC = () => {
               }}
               title={isTorchOn ? 'Turn Off Flashlight' : 'Turn On Flashlight'}
             >
-              {isTorchOn ? <FlashlightOff size={17} /> : <Flashlight size={17} />}
+              {isTorchOn ? <FlashlightOff size={16} /> : <Flashlight size={16} />}
             </button>
           )}
 
@@ -440,7 +647,7 @@ export const MobileScannerPage: React.FC = () => {
             }}
             title={soundEnabled ? 'Mute Sound' : 'Unmute'}
           >
-            {soundEnabled ? <Volume2 size={17} /> : <VolumeX size={17} />}
+            {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
           </button>
 
           <button
@@ -454,10 +661,78 @@ export const MobileScannerPage: React.FC = () => {
             }}
             title={isPaused ? 'Resume Camera' : 'Pause Camera'}
           >
-            {isPaused ? <Play size={17} /> : <Pause size={17} />}
+            {isPaused ? <Play size={16} /> : <Pause size={16} />}
           </button>
         </div>
       </div>
+
+      {/* Unpaired Warning & Quick Scan Guide */}
+      {!pairedSession && (
+        <div
+          style={{
+            background: 'rgba(245, 158, 11, 0.12)',
+            border: '1px solid rgba(245, 158, 11, 0.35)',
+            borderRadius: '10px',
+            padding: '0.75rem 0.9rem',
+            marginBottom: '0.75rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Shield size={18} color="#fbbf24" />
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '0.8rem', color: '#fbbf24' }}>
+                Not Paired to Counter
+              </div>
+              <div style={{ fontSize: '0.7rem', color: '#cbd5e1' }}>
+                Point camera at laptop QR code to connect
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowManualPairModal(true)}
+            style={{
+              background: '#1f2937',
+              border: '1px solid #374151',
+              color: '#93c5fd',
+              padding: '0.35rem 0.65rem',
+              borderRadius: '6px',
+              fontSize: '0.72rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Enter PIN
+          </button>
+        </div>
+      )}
+
+      {pairingError && (
+        <div
+          style={{
+            background: 'rgba(239, 68, 68, 0.15)',
+            border: '1px solid rgba(239, 68, 68, 0.35)',
+            borderRadius: '10px',
+            padding: '0.6rem 0.85rem',
+            marginBottom: '0.75rem',
+            fontSize: '0.75rem',
+            color: '#f87171',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <span>{pairingError}</span>
+          <button
+            onClick={() => setPairingError(null)}
+            style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer' }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Live Synced Laptop Cart Status Strip */}
       <div
@@ -475,7 +750,7 @@ export const MobileScannerPage: React.FC = () => {
       >
         <span style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', color: '#94a3b8' }}>
           <ShoppingCart size={15} color="#38bdf8" />
-          <span>Active Cart on Counter:</span>
+          <span>{pairedSession ? `Cart on ${pairedSession.terminalName}:` : 'Counter Cart:'}</span>
         </span>
         <strong style={{ color: '#38bdf8', fontSize: '0.9rem' }}>
           {cartSummary.count} {cartSummary.count === 1 ? 'item' : 'items'} • ₹{cartSummary.total.toFixed(2)}
@@ -517,7 +792,7 @@ export const MobileScannerPage: React.FC = () => {
           borderRadius: '20px',
           overflow: 'hidden',
           backgroundColor: '#000000',
-          border: isLastScannedSuccess()
+          border: (lastScanned && lastScanned.success)
             ? '2px solid #10b981'
             : lastScanned && !lastScanned.success
             ? '2px solid #ef4444'
@@ -881,10 +1156,81 @@ export const MobileScannerPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Manual Counter PIN Pairing Modal */}
+      {showManualPairModal && (
+        <div
+          className="modal-overlay"
+          onClick={() => setShowManualPairModal(false)}
+        >
+          <div
+            className="modal-card"
+            style={{ maxWidth: '360px', padding: '1.25rem' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Key size={18} color="#60a5fa" />
+                <h3 style={{ fontSize: '1rem', margin: 0 }}>Enter Counter PIN</h3>
+              </div>
+              <button
+                onClick={() => setShowManualPairModal(false)}
+                style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleManualPairSubmit}>
+              <div style={{ marginBottom: '0.85rem' }}>
+                <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem' }}>
+                  Counter Session ID (from laptop modal)
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. term_abc123"
+                  value={manualSessionInput}
+                  onChange={(e) => setManualSessionInput(e.target.value)}
+                  style={{ width: '100%', padding: '0.6rem', fontSize: '0.9rem' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem' }}>
+                  6-Digit Auth PIN (e.g. K9X2P4)
+                </label>
+                <input
+                  type="text"
+                  required
+                  maxLength={6}
+                  placeholder="e.g. K9X2P4"
+                  value={manualKeyInput}
+                  onChange={(e) => setManualKeyInput(e.target.value.toUpperCase())}
+                  style={{
+                    width: '100%',
+                    padding: '0.6rem',
+                    fontSize: '1.1rem',
+                    letterSpacing: '0.15em',
+                    fontWeight: 700,
+                    textAlign: 'center',
+                    fontFamily: 'var(--font-mono)',
+                    textTransform: 'uppercase',
+                  }}
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="btn-primary"
+                style={{ width: '100%', justifyContent: 'center', padding: '0.75rem' }}
+              >
+                Pair to Counter
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
-
-  function isLastScannedSuccess() {
-    return lastScanned && lastScanned.success;
-  }
 };

@@ -1,5 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { socket, joinPosSession } from './services/socket';
+import {
+  socket,
+  getTerminalSession,
+  saveTerminalSession,
+  registerTerminalOnServer,
+  generateAuthKey,
+  TerminalSessionInfo,
+} from './services/socket';
 import { api } from './services/api';
 import { Product, CartItem, Invoice, SettingsMap } from './types';
 import { Navbar } from './components/Navbar';
@@ -29,21 +36,42 @@ export const App: React.FC = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [settings, setSettings] = useState<SettingsMap>({});
-  const [isScannerConnected, setIsScannerConnected] = useState(socket.connected);
+  const [terminalSession, setTerminalSession] = useState<TerminalSessionInfo>(getTerminalSession());
+  const [isScannerConnected, setIsScannerConnected] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
   const [unknownBarcode, setUnknownBarcode] = useState<string | null>(null);
   const [lastCompletedInvoice, setLastCompletedInvoice] = useState<Invoice | null>(null);
   const [selectedBarcodeProductId, setSelectedBarcodeProductId] = useState<number | null>(null);
 
-  // Initialize POS Terminal
+  // Initialize POS Terminal & Register Counter Session
   useEffect(() => {
-    joinPosSession();
+    registerTerminalOnServer(terminalSession, (res) => {
+      if (res && res.isPaired) {
+        setIsScannerConnected(true);
+      }
+    });
+
     loadInitialData();
 
     // Socket.IO event listeners
-    const handleConnect = () => setIsScannerConnected(true);
+    const handleConnect = () => {
+      registerTerminalOnServer(terminalSession, (res) => {
+        if (res && res.isPaired) setIsScannerConnected(true);
+      });
+    };
     const handleDisconnect = () => setIsScannerConnected(false);
-    const handlePeerJoined = () => setIsScannerConnected(true);
+
+    // Live scanner paired/unpaired exclusively for this counter
+    const handleScannerPaired = (data: any) => {
+      console.log(`[POS Terminal ${terminalSession.terminalName}] Phone paired:`, data);
+      setIsScannerConnected(true);
+      playBeepSuccess();
+    };
+
+    const handleScannerUnpaired = () => {
+      console.log(`[POS Terminal ${terminalSession.terminalName}] Phone disconnected`);
+      setIsScannerConnected(false);
+    };
 
     // Live barcode scanned from mobile camera
     const handleBarcodeReceived = (data: {
@@ -52,7 +80,7 @@ export const App: React.FC = () => {
       product?: Product;
       timestamp: string;
     }) => {
-      console.log('[POS Terminal] Barcode received from phone:', data);
+      console.log(`[POS Terminal ${terminalSession.terminalName}] Barcode received:`, data);
 
       if (data.found && data.product) {
         playBeepSuccess();
@@ -76,16 +104,18 @@ export const App: React.FC = () => {
 
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
-    socket.on('peer-joined', handlePeerJoined);
+    socket.on('scanner-paired', handleScannerPaired);
+    socket.on('scanner-unpaired', handleScannerUnpaired);
     socket.on('barcode-received', handleBarcodeReceived);
 
     return () => {
       socket.off('connect', handleConnect);
       socket.off('disconnect', handleDisconnect);
-      socket.off('peer-joined', handlePeerJoined);
+      socket.off('scanner-paired', handleScannerPaired);
+      socket.off('scanner-unpaired', handleScannerUnpaired);
       socket.off('barcode-received', handleBarcodeReceived);
     };
-  }, []);
+  }, [terminalSession]);
 
   // Sync live cart total and item count to mobile phone scanner
   useEffect(() => {
@@ -95,9 +125,13 @@ export const App: React.FC = () => {
         const p = parseFloat(item.product.sellingPrice.toString());
         return acc + Math.max(0, p * item.quantity - item.discount);
       }, 0);
-      socket.emit('update-cart-summary', { count: totalCount, total: totalAmount });
+      socket.emit('update-cart-summary', {
+        count: totalCount,
+        total: totalAmount,
+        sessionId: terminalSession.sessionId,
+      });
     }
-  }, [cart, isMobileScannerRoute]);
+  }, [cart, isMobileScannerRoute, terminalSession.sessionId]);
 
   const loadInitialData = async () => {
     try {
@@ -131,6 +165,7 @@ export const App: React.FC = () => {
         isScannerConnected={isScannerConnected}
         onOpenScannerQR={() => setShowQRModal(true)}
         shopName={settings.SHOP_NAME}
+        terminalName={terminalSession.terminalName}
       />
 
       {/* Main Tab Views */}
@@ -197,6 +232,28 @@ export const App: React.FC = () => {
         isOpen={showQRModal}
         onClose={() => setShowQRModal(false)}
         isScannerConnected={isScannerConnected}
+        terminalSession={terminalSession}
+        onSessionUpdated={(updated) => {
+          setTerminalSession(updated);
+          registerTerminalOnServer(updated);
+        }}
+        onDisconnectScanner={() => {
+          const newAuth = generateAuthKey();
+          socket.emit(
+            'terminal-kick-scanner',
+            {
+              sessionId: terminalSession.sessionId,
+              authKey: terminalSession.authKey,
+              newAuthKey: newAuth,
+            },
+            () => {
+              const updated = { ...terminalSession, authKey: newAuth };
+              saveTerminalSession(updated);
+              setTerminalSession(updated);
+              setIsScannerConnected(false);
+            }
+          );
+        }}
       />
 
       {/* Quick Add Product Modal for Unknown Barcodes */}
