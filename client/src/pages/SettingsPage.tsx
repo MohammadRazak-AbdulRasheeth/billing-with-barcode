@@ -215,6 +215,22 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSettings
 
             <div>
               <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
+                Thermal Printer Left Margin Offset
+              </label>
+              <select
+                value={formData.PRINTER_MARGIN_LEFT || '0mm'}
+                onChange={(e) => handleChange('PRINTER_MARGIN_LEFT', e.target.value)}
+              >
+                <option value="0mm">0 mm (Flush Left - Fixes right-side cut off)</option>
+                <option value="1mm">1 mm (Slight Margin)</option>
+                <option value="2mm">2 mm</option>
+                <option value="3mm">3 mm</option>
+                <option value="4mm">4 mm</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
                 Receipt Footer Greeting Note
               </label>
               <textarea

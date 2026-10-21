@@ -35,13 +35,13 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
       try {
         JsBarcode(barcodeRef.current, invoice.invoiceNumber, {
           format: 'CODE128',
-          width: is58mm ? 1.3 : 1.7,
-          height: 38,
+          width: is58mm ? 1.1 : 1.35,
+          height: 34,
           displayValue: true,
-          fontSize: 10,
+          fontSize: 9,
           font: 'monospace',
           textMargin: 2,
-          margin: 4,
+          margin: 2,
           background: '#ffffff',
           lineColor: '#000000',
         });
@@ -60,45 +60,54 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
     hour12: true,
   });
 
+  const receiptMargin = isPreview
+    ? '0 auto'
+    : `0 0 0 ${settings.PRINTER_MARGIN_LEFT || '0mm'}`;
+
+  const printWidth = is58mm ? '48mm' : '70mm';
+
   const receiptContent = (
     <div
+      className="thermal-receipt-container"
       style={{
-        width: is58mm ? '54mm' : '76mm',
-        maxWidth: is58mm ? '54mm' : '76mm',
-        margin: '0 auto',
-        padding: '3mm 2mm',
+        width: printWidth,
+        maxWidth: printWidth,
+        margin: receiptMargin,
+        padding: is58mm ? '2mm 1mm' : '2mm 1.5mm',
         fontFamily: "'JetBrains Mono', 'Courier New', Courier, monospace",
-        fontSize: is58mm ? '10px' : '11.5px',
-        lineHeight: 1.3,
+        fontSize: is58mm ? '9.5px' : '10.5px',
+        lineHeight: 1.25,
         color: '#000000',
         backgroundColor: '#ffffff',
         boxSizing: 'border-box',
+        textAlign: 'left',
       }}
     >
       {/* Shop Header */}
-      <div style={{ textAlign: 'center', marginBottom: '4px' }}>
+      <div style={{ textAlign: 'center', marginBottom: '3px' }}>
         <h2
           style={{
-            fontSize: is58mm ? '14px' : '17px',
+            fontSize: is58mm ? '13px' : '15px',
             fontWeight: 800,
             margin: '0 0 2px 0',
             textTransform: 'uppercase',
-            letterSpacing: '0.04em',
+            letterSpacing: '0.02em',
             color: '#000000',
+            lineHeight: 1.2,
           }}
         >
           {shopName}
         </h2>
-        <div style={{ fontSize: is58mm ? '9px' : '10.5px', color: '#111' }}>{shopAddress}</div>
-        <div style={{ fontSize: is58mm ? '9px' : '10.5px', color: '#111' }}>Tel: {shopPhone}</div>
+        <div style={{ fontSize: is58mm ? '8.5px' : '9.5px', color: '#111' }}>{shopAddress}</div>
+        <div style={{ fontSize: is58mm ? '8.5px' : '9.5px', color: '#111' }}>Tel: {shopPhone}</div>
         {shopGst && (
           <div
             style={{
-              fontSize: is58mm ? '9px' : '10px',
+              fontSize: is58mm ? '8.5px' : '9.5px',
               fontWeight: 700,
               display: 'inline-block',
               border: '1px solid #000',
-              padding: '1px 5px',
+              padding: '1px 4px',
               marginTop: '2px',
               borderRadius: '2px',
             }}
@@ -108,12 +117,10 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
         )}
       </div>
 
-      <div style={{ textAlign: 'center', margin: '3px 0', fontSize: '10px', color: '#000' }}>
-        ========================================
-      </div>
+      <div style={{ borderTop: '1.5px solid #000', margin: '3px 0' }} />
 
       {/* Meta Information */}
-      <div style={{ fontSize: is58mm ? '9.5px' : '11px', marginBottom: '3px' }}>
+      <div style={{ fontSize: is58mm ? '9px' : '10px', marginBottom: '3px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span>Invoice No:</span>
           <strong>{invoice.invoiceNumber}</strong>
@@ -128,9 +135,7 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
         </div>
       </div>
 
-      <div style={{ textAlign: 'center', margin: '3px 0', fontSize: '10px', color: '#000' }}>
-        ----------------------------------------
-      </div>
+      <div style={{ borderTop: '1px dashed #000', margin: '3px 0' }} />
 
       {/* Line Items Table */}
       <table
@@ -138,32 +143,33 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
           width: '100%',
           borderCollapse: 'collapse',
           textAlign: 'left',
-          fontSize: is58mm ? '9.5px' : '11px',
+          fontSize: is58mm ? '9px' : '10px',
           color: '#000',
+          tableLayout: 'fixed',
         }}
       >
         <thead>
           <tr style={{ borderBottom: '1px solid #000' }}>
-            <th style={{ padding: '3px 0', width: '48%', fontWeight: 700 }}>ITEM</th>
-            <th style={{ padding: '3px 0', textAlign: 'center', width: '14%', fontWeight: 700 }}>QTY</th>
-            <th style={{ padding: '3px 0', textAlign: 'right', width: '18%', fontWeight: 700 }}>RATE</th>
-            <th style={{ padding: '3px 0', textAlign: 'right', width: '20%', fontWeight: 700 }}>AMOUNT</th>
+            <th style={{ padding: '2px 0', width: '45%', fontWeight: 700 }}>ITEM</th>
+            <th style={{ padding: '2px 0', textAlign: 'center', width: '13%', fontWeight: 700 }}>QTY</th>
+            <th style={{ padding: '2px 0', textAlign: 'right', width: '20%', fontWeight: 700 }}>RATE</th>
+            <th style={{ padding: '2px 0', textAlign: 'right', width: '22%', fontWeight: 700 }}>AMOUNT</th>
           </tr>
         </thead>
         <tbody>
           {invoice.items.map((item, idx) => (
             <tr key={idx} style={{ verticalAlign: 'top', borderBottom: '0.5px dashed #ccc' }}>
-              <td style={{ padding: '3px 0', wordBreak: 'break-word' }}>
+              <td style={{ padding: '2px 0', wordBreak: 'break-word' }}>
                 <span style={{ fontWeight: 600 }}>{item.productName}</span>
                 {item.discount > 0 && (
-                  <div style={{ fontSize: '9px', fontStyle: 'italic', color: '#333' }}>
+                  <div style={{ fontSize: '8.5px', fontStyle: 'italic', color: '#333' }}>
                     (Disc: -{currency}{item.discount})
                   </div>
                 )}
               </td>
-              <td style={{ padding: '3px 0', textAlign: 'center' }}>{item.quantity}</td>
-              <td style={{ padding: '3px 0', textAlign: 'right' }}>{Number(item.unitPrice).toFixed(2)}</td>
-              <td style={{ padding: '3px 0', textAlign: 'right', fontWeight: 700 }}>
+              <td style={{ padding: '2px 0', textAlign: 'center' }}>{item.quantity}</td>
+              <td style={{ padding: '2px 0', textAlign: 'right' }}>{Number(item.unitPrice).toFixed(2)}</td>
+              <td style={{ padding: '2px 0', textAlign: 'right', fontWeight: 700 }}>
                 {Number(item.lineTotal).toFixed(2)}
               </td>
             </tr>
@@ -171,12 +177,10 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
         </tbody>
       </table>
 
-      <div style={{ textAlign: 'center', margin: '3px 0', fontSize: '10px', color: '#000' }}>
-        ----------------------------------------
-      </div>
+      <div style={{ borderTop: '1px dashed #000', margin: '3px 0' }} />
 
       {/* Summary Totals */}
-      <div style={{ fontSize: is58mm ? '10px' : '11.5px', color: '#000' }}>
+      <div style={{ fontSize: is58mm ? '9.5px' : '10.5px', color: '#000' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '1px 0' }}>
           <span>Subtotal:</span>
           <span>{currency} {Number(invoice.subtotal).toFixed(2)}</span>
@@ -196,14 +200,14 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
           </div>
         )}
 
-        <div style={{ borderTop: '1.5px solid #000', margin: '4px 0' }} />
+        <div style={{ borderTop: '1.5px solid #000', margin: '3px 0' }} />
 
         {/* Large Net Payable */}
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
-            fontSize: is58mm ? '13px' : '16px',
+            fontSize: is58mm ? '12px' : '14px',
             fontWeight: 800,
             padding: '2px 0',
           }}
@@ -212,11 +216,11 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
           <span>{currency} {Number(invoice.totalAmount).toFixed(2)}</span>
         </div>
 
-        <div style={{ borderTop: '1.5px solid #000', margin: '4px 0' }} />
+        <div style={{ borderTop: '1.5px solid #000', margin: '3px 0' }} />
 
         {/* Cash Tender Breakdown */}
         {invoice.paymentMethod === 'CASH' && cashReceived !== undefined && cashReceived > 0 && (
-          <div style={{ fontSize: is58mm ? '9.5px' : '11px', marginTop: '2px' }}>
+          <div style={{ fontSize: is58mm ? '9px' : '10px', marginTop: '2px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>Cash Received:</span>
               <span>{currency} {Number(cashReceived).toFixed(2)}</span>
@@ -229,21 +233,19 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
         )}
       </div>
 
-      <div style={{ textAlign: 'center', margin: '4px 0', fontSize: '10px', color: '#000' }}>
-        ========================================
-      </div>
+      <div style={{ borderTop: '1.5px solid #000', margin: '3px 0' }} />
 
       {/* Invoice Barcode */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '4px 0' }}>
-        <svg ref={barcodeRef} style={{ maxWidth: '100%', height: '42px' }} />
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '3px 0' }}>
+        <svg ref={barcodeRef} style={{ maxWidth: '100%', height: '36px' }} />
       </div>
 
       {/* Footer Notices */}
-      <div style={{ textAlign: 'center', fontSize: is58mm ? '8.5px' : '9.5px', marginTop: '4px', color: '#111' }}>
+      <div style={{ textAlign: 'center', fontSize: is58mm ? '8px' : '9px', marginTop: '3px', color: '#111' }}>
         <div>Total Items Sold: {invoice.items.reduce((acc, i) => acc + i.quantity, 0)}</div>
-        <div style={{ marginTop: '3px', fontStyle: 'italic', fontWeight: 600 }}>{footerNote}</div>
-        <div style={{ marginTop: '2px', fontSize: '8px' }}>Goods once sold cannot be returned without bill.</div>
-        <div style={{ marginTop: '4px', fontSize: '8px', color: '#555' }}>
+        <div style={{ marginTop: '2px', fontStyle: 'italic', fontWeight: 600 }}>{footerNote}</div>
+        <div style={{ marginTop: '1px', fontSize: '7.5px' }}>Goods once sold cannot be returned without bill.</div>
+        <div style={{ marginTop: '3px', fontSize: '7.5px', color: '#555' }}>
           *** THANK YOU - VISIT AGAIN ***
         </div>
       </div>
