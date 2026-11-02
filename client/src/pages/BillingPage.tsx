@@ -48,10 +48,31 @@ export const BillingPage: React.FC<BillingPageProps> = ({
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchReqIdRef = useRef<number>(0);
 
-  // Keyboard shortcuts listener
+  // Auto-focus search input on page load for immediate physical barcode scanning
+  useEffect(() => {
+    searchInputRef.current?.focus();
+  }, []);
+
+  // Dismiss search dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        searchInputRef.current &&
+        !searchInputRef.current.contains(e.target as Node)
+      ) {
+        setSearchResults([]);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Keyboard shortcuts and global barcode scanner listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'F2') {
@@ -63,29 +84,50 @@ export const BillingPage: React.FC<BillingPageProps> = ({
       } else if (e.key === 'F9' && cart.length > 0 && !showCheckoutModal) {
         e.preventDefault();
         setShowCheckoutModal(true);
+      } else if (!showCheckoutModal) {
+        // If cashier triggers barcode scanner while focus is outside input, redirect focus to search input
+        const target = e.target as HTMLElement;
+        const isInput =
+          target &&
+          (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.tagName === 'SELECT');
+        if (!isInput && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+          searchInputRef.current?.focus();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [cart, showCheckoutModal]);
 
-  // Live product search debounce
+  // Live product search debounce with race-condition prevention
   useEffect(() => {
-    if (!searchQuery.trim()) {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) {
       setSearchResults([]);
       setIsSearching(false);
       return;
     }
 
+    const currentReqId = ++searchReqIdRef.current;
+
     const timer = setTimeout(async () => {
       try {
         setIsSearching(true);
-        const results = await api.getProducts({ search: searchQuery.trim() });
-        setSearchResults(results.slice(0, 6));
+        const results = await api.getProducts({ search: trimmed });
+        // Only set results if query has not been cleared or superseded
+        if (currentReqId === searchReqIdRef.current && searchQuery.trim().length > 0) {
+          setSearchResults(results.slice(0, 6));
+        }
       } catch (err) {
-        console.error('Search error:', err);
+        if (currentReqId === searchReqIdRef.current) {
+          console.error('Search error:', err);
+        }
       } finally {
-        setIsSearching(false);
+        if (currentReqId === searchReqIdRef.current) {
+          setIsSearching(false);
+        }
       }
     }, 200);
 
@@ -93,6 +135,8 @@ export const BillingPage: React.FC<BillingPageProps> = ({
   }, [searchQuery]);
 
   const handleAddToCart = (product: Product) => {
+    // Invalidate in-flight search requests immediately
+    searchReqIdRef.current++;
     playBeepSuccess();
     setCart((prev) => {
       const existing = prev.find((i) => i.product.id === product.id);
@@ -104,8 +148,85 @@ export const BillingPage: React.FC<BillingPageProps> = ({
         return [{ product, quantity: 1, discount: 0 }, ...prev];
       }
     });
+    // Immediately clear search query, dropdown suggestions, and errors
     setSearchQuery('');
     setSearchResults([]);
+    setIsSearching(false);
+    setSearchError(null);
+    if (searchInputRef.current) {
+      searchInputRef.current.value = '';
+    }
+    // Keep focus ready for the next barcode scan!
+    setTimeout(() => {
+      searchInputRef.current?.focus();
+    }, 40);
+  };
+
+  // Instant barcode scanner Enter handler: scans barcode -> hits enter -> immediately adds to cart & clears dropdown
+  const handleSearchKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      searchReqIdRef.current++;
+      setSearchQuery('');
+      setSearchResults([]);
+      setSearchError(null);
+      return;
+    }
+
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const query = searchQuery.trim();
+      if (!query) return;
+
+      // Invalidate pending search requests & immediately clear the dropdown
+      searchReqIdRef.current++;
+      const currentLoadedResults = [...searchResults];
+      setSearchResults([]);
+
+      try {
+        setIsSearching(true);
+        setSearchError(null);
+
+        // 1. Direct exact barcode match in already loaded search results
+        const exactMatch = currentLoadedResults.find(
+          (p) =>
+            p.barcode.toLowerCase() === query.toLowerCase() ||
+            p.sku?.toLowerCase() === query.toLowerCase()
+        );
+        if (exactMatch) {
+          handleAddToCart(exactMatch);
+          return;
+        }
+
+        // 2. Direct lookup by barcode from database API (/api/products/barcode/:barcode)
+        try {
+          const product = await api.getProductByBarcode(query);
+          if (product && product.id) {
+            handleAddToCart(product);
+            return;
+          }
+        } catch {
+          // Barcode endpoint 404, fall through to product search
+        }
+
+        // 3. Fallback: Search products query (name, SKU, or partial barcode)
+        const prods = await api.getProducts({ search: query });
+        if (prods && prods.length > 0) {
+          const matched =
+            prods.find((p) => p.barcode.toLowerCase() === query.toLowerCase()) || prods[0];
+          handleAddToCart(matched);
+        } else {
+          // Barcode or product not found
+          playBeepError();
+          setSearchError(`Barcode "${query}" not found in product catalog.`);
+          setTimeout(() => setSearchError(null), 3500);
+        }
+      } catch (err) {
+        console.error('Barcode scanner lookup error:', err);
+        playBeepError();
+      } finally {
+        setIsSearching(false);
+      }
+    }
   };
 
   const handleUpdateQuantity = (productId: number, delta: number) => {
@@ -255,14 +376,45 @@ export const BillingPage: React.FC<BillingPageProps> = ({
             <input
               ref={searchInputRef}
               type="text"
-              placeholder="Search product name, SKU, or scan barcode... (Press F4)"
+              placeholder="Scan barcode with scanner or search product... (Press Enter or F4)"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                if (searchError) setSearchError(null);
+              }}
+              onKeyDown={handleSearchKeyDown}
+              autoFocus
               style={{ paddingLeft: '2.5rem' }}
             />
 
-            {/* Live Autocomplete Dropdown */}
-            {searchResults.length > 0 && (
+            {/* Notification when scanned barcode not found */}
+            {searchError && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 4px)',
+                  left: 0,
+                  right: 0,
+                  background: 'rgba(239, 68, 68, 0.95)',
+                  color: '#ffffff',
+                  padding: '0.6rem 0.85rem',
+                  borderRadius: '8px',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  boxShadow: '0 8px 20px rgba(239, 68, 68, 0.3)',
+                  zIndex: 25,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                }}
+              >
+                <AlertTriangle size={16} />
+                <span>{searchError}</span>
+              </div>
+            )}
+
+            {/* Live Autocomplete Dropdown - only shown when actively searching */}
+            {searchQuery.trim().length > 0 && searchResults.length > 0 && (
               <div
                 style={{
                   position: 'absolute',

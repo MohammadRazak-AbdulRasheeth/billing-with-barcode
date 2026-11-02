@@ -1,5 +1,13 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
+import {
+  MultiFormatReader,
+  BarcodeFormat,
+  DecodeHintType,
+  RGBLuminanceSource,
+  BinaryBitmap,
+  HybridBinarizer,
+  GlobalHistogramBinarizer,
+} from '@zxing/library';
 import {
   Camera,
   Pause,
@@ -24,6 +32,23 @@ import {
 } from 'lucide-react';
 import { socket } from '../services/socket';
 import { playBeepSuccess, playBeepError, triggerHaptic } from '../utils/audio';
+
+// Pre-configure high-performance ZXing MultiFormatReader (EAN-13, Code 128, QR, UPC)
+const zxingHints = new Map<DecodeHintType, any>();
+zxingHints.set(DecodeHintType.POSSIBLE_FORMATS, [
+  BarcodeFormat.EAN_13,
+  BarcodeFormat.CODE_128,
+  BarcodeFormat.UPC_A,
+  BarcodeFormat.UPC_E,
+  BarcodeFormat.CODE_39,
+  BarcodeFormat.EAN_8,
+  BarcodeFormat.ITF,
+  BarcodeFormat.QR_CODE,
+]);
+zxingHints.set(DecodeHintType.TRY_HARDER, true);
+
+const zxingReader = new MultiFormatReader();
+zxingReader.setHints(zxingHints);
 
 interface PairedSession {
   sessionId: string;
@@ -75,13 +100,28 @@ export const MobileScannerPage: React.FC = () => {
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [zoomSupported, setZoomSupported] = useState(false);
   const [maxZoom, setMaxZoom] = useState<number>(3);
+  const [isHardwareZoomActive, setIsHardwareZoomActive] = useState<boolean>(false);
+  const [focusIndicator, setFocusIndicator] = useState<{ x: number; y: number; active: boolean } | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const scanIntervalRef = useRef<number | null>(null);
+  const autoFocusIntervalRef = useRef<number | null>(null);
+  const focusTimeoutRef = useRef<number | null>(null);
+  const frameCountRef = useRef<number>(0);
+  const zoomLevelRef = useRef<number>(1);
+  const isHardwareZoomActiveRef = useRef<boolean>(false);
   const lastScannedTimeRef = useRef<number>(0);
   const lastScannedCodeRef = useRef<string>('');
   const pairedSessionRef = useRef<PairedSession | null>(pairedSession);
+
+  useEffect(() => {
+    zoomLevelRef.current = zoomLevel;
+  }, [zoomLevel]);
+
+  useEffect(() => {
+    isHardwareZoomActiveRef.current = isHardwareZoomActive;
+  }, [isHardwareZoomActive]);
 
   useEffect(() => {
     pairedSessionRef.current = pairedSession;
@@ -172,6 +212,35 @@ export const MobileScannerPage: React.FC = () => {
     };
   }, []);
 
+  const triggerAutoFocus = async () => {
+    try {
+      if (mediaStreamRef.current) {
+        const track = mediaStreamRef.current.getVideoTracks()[0];
+        const capabilities = (track as any).getCapabilities?.();
+        if (capabilities?.focusMode?.includes('continuous')) {
+          await (track as any).applyConstraints({
+            advanced: [{ focusMode: 'continuous' }],
+          });
+        }
+      }
+    } catch {}
+  };
+
+  const handleTapToFocus = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    setFocusIndicator({ x, y, active: true });
+    if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current);
+    focusTimeoutRef.current = window.setTimeout(() => {
+      setFocusIndicator(null);
+    }, 900);
+
+    triggerAutoFocus();
+    triggerHaptic('success');
+  };
+
   const startCamera = async () => {
     try {
       setCameraError(null);
@@ -188,17 +257,38 @@ export const MobileScannerPage: React.FC = () => {
 
       stopCamera();
 
-      // Request high-definition 1080p video feed for crystal-clear long-distance barcode lines
-      const constraints: MediaStreamConstraints = {
-        audio: false,
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1920, min: 1280 },
-          height: { ideal: 1080, min: 720 },
-        },
-      };
+      // Request continuous autofocus and full-HD 1080p video feed for maximum barcode bar density
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1920, min: 1280 },
+            height: { ideal: 1080, min: 720 },
+            // @ts-ignore
+            advanced: [{ focusMode: 'continuous' }],
+          },
+        });
+      } catch (err) {
+        // Fallback for strict mobile browsers that reject width/height/focusMode constraints
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+          });
+        } catch (err2) {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { facingMode: 'environment' },
+          });
+        }
+      }
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       mediaStreamRef.current = stream;
 
       if (videoRef.current) {
@@ -211,7 +301,7 @@ export const MobileScannerPage: React.FC = () => {
       setIsScanning(true);
       setIsPaused(false);
 
-      // Check hardware capabilities (Torch & Hardware Optical/Digital Zoom)
+      // Check hardware capabilities (Torch & Hardware Optical/Digital Zoom & Continuous Autofocus)
       try {
         const track = stream.getVideoTracks()[0];
         const capabilities = (track as any).getCapabilities?.();
@@ -219,12 +309,25 @@ export const MobileScannerPage: React.FC = () => {
           if (capabilities.torch) setTorchSupported(true);
           if (capabilities.zoom) {
             setZoomSupported(true);
-            setMaxZoom(Math.min(capabilities.zoom.max || 3, 4));
+            setMaxZoom(Math.min(capabilities.zoom.max || 4, 5));
+          }
+          if (capabilities.focusMode?.includes('continuous')) {
+            await (track as any).applyConstraints({
+              advanced: [{ focusMode: 'continuous' }],
+            });
           }
         }
       } catch {
         // Capabilities not supported
       }
+
+      // Continuous autofocus refresher: periodic every 3.5s to prevent mobile camera focus drift
+      if (autoFocusIntervalRef.current) clearInterval(autoFocusIntervalRef.current);
+      autoFocusIntervalRef.current = window.setInterval(() => {
+        if (!isPaused && cameraActive) {
+          triggerAutoFocus();
+        }
+      }, 3500);
 
       // Launch barcode decoding loop
       startDecodingLoop();
@@ -242,6 +345,14 @@ export const MobileScannerPage: React.FC = () => {
     if (scanIntervalRef.current) {
       clearInterval(scanIntervalRef.current);
       scanIntervalRef.current = null;
+    }
+    if (autoFocusIntervalRef.current) {
+      clearInterval(autoFocusIntervalRef.current);
+      autoFocusIntervalRef.current = null;
+    }
+    if (focusTimeoutRef.current) {
+      clearTimeout(focusTimeoutRef.current);
+      focusTimeoutRef.current = null;
     }
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -286,87 +397,177 @@ export const MobileScannerPage: React.FC = () => {
 
   const applyZoom = async (newZoom: number) => {
     setZoomLevel(newZoom);
+    zoomLevelRef.current = newZoom;
+    let hwSuccess = false;
     try {
       if (mediaStreamRef.current) {
         const track = mediaStreamRef.current.getVideoTracks()[0];
-        await (track as any).applyConstraints({
-          advanced: [{ zoom: newZoom }],
-        });
+        const capabilities = (track as any).getCapabilities?.();
+        if (capabilities && capabilities.zoom) {
+          const minZ = capabilities.zoom.min || 1;
+          const maxZ = capabilities.zoom.max || 4;
+          const clamped = Math.max(minZ, Math.min(newZoom, maxZ));
+          await (track as any).applyConstraints({
+            advanced: [{ zoom: clamped }],
+          });
+          hwSuccess = true;
+        }
       }
     } catch (e) {
       console.warn('Hardware zoom constraint error:', e);
     }
+    setIsHardwareZoomActive(hwSuccess);
+    isHardwareZoomActiveRef.current = hwSuccess;
+    triggerAutoFocus();
   };
 
-  // High-performance barcode detection engine
-  const startDecodingLoop = () => {
+  // Ultra-fast high-resolution barcode detection engine with dual binarizers and telephoto ROI crop
+  const startDecodingLoop = async () => {
     if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
 
-    // Check if native BarcodeDetector API is available (iOS 17+ / Chrome Android)
-    const hasNativeBarcodeDetector = 'BarcodeDetector' in window;
+    // 1. Check if native BarcodeDetector is safely supported without throwing format errors
     let nativeDetector: any = null;
-
-    if (hasNativeBarcodeDetector) {
+    if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
       try {
-        nativeDetector = new (window as any).BarcodeDetector({
-          formats: ['ean_13', 'code_128', 'upc_a', 'upc_e', 'ean_8', 'code_39', 'qr_code'],
-        });
+        const BarcodeDetectorClass = (window as any).BarcodeDetector;
+        let supported: string[] = [];
+        if (typeof BarcodeDetectorClass.getSupportedFormats === 'function') {
+          try {
+            supported = await BarcodeDetectorClass.getSupportedFormats();
+          } catch {}
+        }
+        const preferred = ['ean_13', 'code_128', 'upc_a', 'upc_e', 'ean_8', 'code_39', 'qr_code', 'itf'];
+        const formats = supported.length > 0 ? preferred.filter((f) => supported.includes(f)) : preferred;
+        if (formats.length > 0) {
+          nativeDetector = new BarcodeDetectorClass({ formats });
+        }
       } catch (e) {
-        console.warn('Native BarcodeDetector init failed, using fallback:', e);
+        console.warn('Native BarcodeDetector init bypassed, using ZXing:', e);
       }
     }
 
-    // Off-screen canvas for fallback decoding
+    // Reusable off-screen canvas and 2D context for zero-allocation decoding
     const offscreenCanvas = document.createElement('canvas');
     const ctx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
-    let fallbackScanner: Html5Qrcode | null = null;
+    let isDecoding = false;
 
     scanIntervalRef.current = window.setInterval(async () => {
+      if (isDecoding) return;
       if (!videoRef.current || videoRef.current.readyState < 2 || isPaused) return;
 
       const video = videoRef.current;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (!vw || !vh || !ctx) return;
 
-      // 1. FASTEST PATH: Native Hardware BarcodeDetector (<5ms)
-      if (nativeDetector) {
-        try {
-          const barcodes = await nativeDetector.detect(video);
-          if (barcodes && barcodes.length > 0) {
-            const raw = barcodes[0].rawValue;
-            if (raw) {
-              handleBarcodeDetected(raw);
-              return;
-            }
-          }
-        } catch {
-          // fall through to fallback
-        }
-      }
+      isDecoding = true;
+      frameCountRef.current++;
 
-      // 2. FALLBACK PATH: Html5Qrcode / ZXing scan
       try {
-        if (!fallbackScanner) {
-          fallbackScanner = new Html5Qrcode('qr-reader-hidden-canvas', { verbose: false });
+        const currentZoom = zoomLevelRef.current || 1;
+        const isHwZoom = isHardwareZoomActiveRef.current;
+        const effectiveZoom = isHwZoom ? 1 : currentZoom;
+
+        // Calculate targeting reticle Region-Of-Interest (ROI) directly from 1080p sensor pixels
+        // At higher zoom levels, crop tighter into the unscaled sensor pixels (true telephoto zoom)
+        const roiRatioW = vw >= vh ? 0.60 : 0.72;
+        const roiRatioH = vw >= vh ? 0.42 : 0.36;
+
+        let cropW = Math.round((vw * roiRatioW) / effectiveZoom);
+        let cropH = Math.round((vh * roiRatioH) / effectiveZoom);
+
+        // Clamp safely to video dimensions
+        cropW = Math.max(260, Math.min(cropW, vw));
+        cropH = Math.max(160, Math.min(cropH, vh));
+        const cropX = Math.max(0, Math.round((vw - cropW) / 2));
+        const cropY = Math.max(0, Math.round((vh - cropH) / 2));
+
+        // Preserve native sensor resolution without shrinking down
+        const targetW = Math.min(cropW, 960);
+        const targetH = Math.min(cropH, 600);
+
+        if (offscreenCanvas.width !== targetW || offscreenCanvas.height !== targetH) {
+          offscreenCanvas.width = targetW;
+          offscreenCanvas.height = targetH;
         }
-        offscreenCanvas.width = video.videoWidth || 640;
-        offscreenCanvas.height = video.videoHeight || 480;
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
-          offscreenCanvas.toBlob(async (blob) => {
-            if (blob && fallbackScanner) {
+
+        // Disable smoothing to prevent blurring single-pixel 1D barcode lines
+        ctx.imageSmoothingEnabled = false;
+
+        // Boost contrast and brightness for thermal paper barcode clarity
+        try {
+          ctx.filter = 'contrast(1.3) brightness(1.05)';
+        } catch {}
+
+        ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
+
+        let decodedText: string | null = null;
+
+        // -------------------------------------------------------------
+        // TIER 1: Native Hardware BarcodeDetector on the High-Res ROI
+        // -------------------------------------------------------------
+        if (nativeDetector) {
+          try {
+            const barcodes = await nativeDetector.detect(offscreenCanvas);
+            if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+              decodedText = barcodes[0].rawValue;
+            }
+          } catch {}
+
+          // Fallback to full frame every 3rd frame if zoomed ROI didn't catch an off-center item
+          if (!decodedText && frameCountRef.current % 3 === 0) {
+            try {
+              const fullBarcodes = await nativeDetector.detect(video);
+              if (fullBarcodes && fullBarcodes.length > 0 && fullBarcodes[0].rawValue) {
+                decodedText = fullBarcodes[0].rawValue;
+              }
+            } catch {}
+          }
+        }
+
+        // -------------------------------------------------------------
+        // TIER 2: ZXing Dual Binarizer Engine (Hybrid + GlobalHistogram)
+        // -------------------------------------------------------------
+        if (!decodedText) {
+          try {
+            const imgData = ctx.getImageData(0, 0, targetW, targetH);
+            const lumSource = new RGBLuminanceSource(imgData.data, targetW, targetH);
+
+            // Pass 2A: HybridBinarizer (adaptive local thresholding)
+            try {
+              const bitmap = new BinaryBitmap(new HybridBinarizer(lumSource));
+              const result = zxingReader.decode(bitmap);
+              decodedText = result.getText();
+            } catch {
+              // Pass 2B: GlobalHistogramBinarizer (superior for thin 1D thermal barcodes at a distance)
               try {
-                const file = new File([blob], 'frame.jpg', { type: 'image/jpeg' });
-                const res = await fallbackScanner.scanFile(file, false);
-                if (res) handleBarcodeDetected(res);
+                const bitmap = new BinaryBitmap(new GlobalHistogramBinarizer(lumSource));
+                const result = zxingReader.decode(bitmap);
+                decodedText = result.getText();
               } catch {
-                // ignore unrecognised frame
+                // Pass 2C: Inverted fallback for glossy reflections or high-contrast glare
+                if (frameCountRef.current % 4 === 0) {
+                  try {
+                    const invSource = lumSource.invert();
+                    const bitmap = new BinaryBitmap(new GlobalHistogramBinarizer(invSource));
+                    const result = zxingReader.decode(bitmap);
+                    decodedText = result.getText();
+                  } catch {}
+                }
               }
             }
-          }, 'image/jpeg', 0.8);
+          } catch {}
         }
-      } catch {
-        // ignore frame decoding errors
+
+        if (decodedText) {
+          handleBarcodeDetected(decodedText);
+        }
+      } catch (err) {
+        // Ignore unrecognised frame
+      } finally {
+        isDecoding = false;
       }
-    }, 80); // ~12-15 checks per second with zero lag
+    }, 85);
   };
 
   // Debounced scan handler
@@ -785,8 +986,9 @@ export const MobileScannerPage: React.FC = () => {
         </div>
       )}
 
-      {/* Futuristic Viewfinder Container */}
+      {/* Futuristic Viewfinder Container with Tap-To-Focus */}
       <div
+        onClick={handleTapToFocus}
         style={{
           position: 'relative',
           borderRadius: '20px',
@@ -804,8 +1006,58 @@ export const MobileScannerPage: React.FC = () => {
           flexDirection: 'column',
           justifyContent: 'center',
           alignItems: 'center',
+          cursor: 'pointer',
         }}
       >
+        {/* Animated Tap-To-Focus Indicator Ring */}
+        {focusIndicator?.active && (
+          <div
+            style={{
+              position: 'absolute',
+              left: focusIndicator.x,
+              top: focusIndicator.y,
+              transform: 'translate(-50%, -50%)',
+              width: '52px',
+              height: '52px',
+              border: '2px solid #38bdf8',
+              borderRadius: '10px',
+              boxShadow: '0 0 14px rgba(56, 189, 248, 0.7)',
+              pointerEvents: 'none',
+              zIndex: 35,
+              animation: 'focus-pulse 0.7s ease-out forwards',
+            }}
+          />
+        )}
+
+        {/* Distance Scan Telephoto Badge */}
+        {cameraActive && !isPaused && zoomLevel >= 1.5 && (
+          <div
+            style={{
+              position: 'absolute',
+              top: '12px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: 'rgba(37, 99, 235, 0.88)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(96, 165, 250, 0.5)',
+              borderRadius: '9999px',
+              padding: '3px 12px',
+              fontSize: '0.68rem',
+              fontWeight: 700,
+              color: '#ffffff',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              zIndex: 28,
+              pointerEvents: 'none',
+              boxShadow: '0 2px 10px rgba(37, 99, 235, 0.5)',
+              letterSpacing: '0.02em',
+            }}
+          >
+            <span>🔭 Distance Telephoto ({zoomLevel}x)</span>
+          </div>
+        )}
+
         {/* Modern Targeting Reticle (Center Focus Box) */}
         {cameraActive && !isPaused && (
           <div
@@ -834,7 +1086,7 @@ export const MobileScannerPage: React.FC = () => {
           </div>
         )}
 
-        {/* Quick Zoom Pill Selector (1x / 2x / 3x) for Long Distance Scanning */}
+        {/* Quick Zoom Pill Selector (1x / 1.5x / 2x / 3x) for Long Distance Scanning */}
         {cameraActive && !isPaused && (
           <div
             style={{
@@ -842,18 +1094,20 @@ export const MobileScannerPage: React.FC = () => {
               bottom: '12px',
               left: '50%',
               transform: 'translateX(-50%)',
-              background: 'rgba(15, 23, 42, 0.75)',
-              backdropFilter: 'blur(8px)',
-              border: '1px solid rgba(255, 255, 255, 0.15)',
+              background: 'rgba(15, 23, 42, 0.85)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255, 255, 255, 0.18)',
               borderRadius: '9999px',
-              padding: '3px 6px',
+              padding: '4px 8px',
               display: 'flex',
+              alignItems: 'center',
               gap: '4px',
               zIndex: 30,
-              boxShadow: '0 4px 15px rgba(0, 0, 0, 0.5)',
+              boxShadow: '0 6px 20px rgba(0, 0, 0, 0.65)',
             }}
+            onClick={(e) => e.stopPropagation()}
           >
-            {[1, 2, 3].map((z) => (
+            {[1, 1.5, 2, 3].map((z) => (
               <button
                 key={z}
                 onClick={(e) => {
@@ -861,15 +1115,16 @@ export const MobileScannerPage: React.FC = () => {
                   applyZoom(z);
                 }}
                 style={{
-                  background: zoomLevel === z ? '#2563eb' : 'transparent',
+                  background: zoomLevel === z ? 'linear-gradient(135deg, #2563eb, #3b82f6)' : 'transparent',
                   color: zoomLevel === z ? '#ffffff' : '#94a3b8',
                   border: 'none',
                   borderRadius: '9999px',
-                  padding: '3px 10px',
+                  padding: '4px 10px',
                   fontSize: '0.75rem',
                   fontWeight: 700,
                   cursor: 'pointer',
                   transition: 'all 0.15s ease',
+                  boxShadow: zoomLevel === z ? '0 0 10px rgba(37, 99, 235, 0.5)' : 'none',
                 }}
               >
                 {z}x
@@ -887,14 +1142,12 @@ export const MobileScannerPage: React.FC = () => {
           className="scanner-video-feed"
           style={{
             display: cameraActive ? 'block' : 'none',
-            transform: zoomLevel > 1 ? `scale(${zoomLevel})` : 'none',
+            transform: !isHardwareZoomActive && zoomLevel > 1 ? `scale(${zoomLevel})` : 'none',
             transformOrigin: 'center center',
             transition: 'transform 0.2s ease-out',
+            cursor: 'pointer',
           }}
         />
-
-        {/* Hidden auxiliary canvas for fallback background decoding */}
-        <div id="qr-reader-hidden-canvas" style={{ display: 'none' }} />
 
         {/* Prompt to start camera (iOS / First time) */}
         {!cameraActive && !cameraError && (

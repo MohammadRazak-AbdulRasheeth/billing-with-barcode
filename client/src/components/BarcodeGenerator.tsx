@@ -20,7 +20,16 @@ interface BarcodeGeneratorProps {
   selectedProductId?: number | null;
 }
 
-type SheetFormat = 'thermal_50x30' | 'thermal_38x25' | 'a4_24' | 'a4_40' | 'a4_65';
+type SheetFormat =
+  | 'thermal_35x22_triple'
+  | 'thermal_35x22_triple_compact'
+  | 'thermal_35x22_dual'
+  | 'thermal_35x22'
+  | 'thermal_50x30'
+  | 'thermal_38x25'
+  | 'a4_24'
+  | 'a4_40'
+  | 'a4_65';
 
 export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
   products,
@@ -31,15 +40,18 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [customBarcode, setCustomBarcode] = useState('');
   const [productTitle, setProductTitle] = useState('');
-  const [productPrice, setProductPrice] = useState('');
   const [barcodeFormat, setBarcodeFormat] = useState<'CODE128' | 'EAN13'>('CODE128');
 
-  // Label configuration options
-  const [sheetFormat, setSheetFormat] = useState<SheetFormat>('a4_24');
-  const [labelCount, setLabelCount] = useState<number>(24);
-  const [showShopName, setShowShopName] = useState(true);
+  // Label configuration options - defaults to TVS LP 46 DLITE (3 Columns per row: 35x22mm 3-Across)
+  const [sheetFormat, setSheetFormat] = useState<SheetFormat>('thermal_35x22_triple');
+  const [labelCount, setLabelCount] = useState<number>(30);
+  // Left and right margin for each sticker (default 2mm)
+  const [stickerMarginX, setStickerMarginX] = useState<number>(2);
+  // Barcode height on sticker in mm (default 16.5mm, range 10-19mm)
+  const [barcodeHeightMm, setBarcodeHeightMm] = useState<number>(16.5);
+  // Left alignment offset for printer roll (default 0mm)
+  const [rollLeftOffset, setRollLeftOffset] = useState<number>(0);
   const [showProductName, setShowProductName] = useState(true);
-  const [showPrice, setShowPrice] = useState(true);
   const [showBarcodeText, setShowBarcodeText] = useState(true);
 
   // Active print flag
@@ -58,7 +70,6 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
     setSelectedProduct(p);
     setCustomBarcode(p.barcode);
     setProductTitle(p.name);
-    setProductPrice(String(p.sellingPrice));
 
     // Auto-detect EAN-13 vs Code 128
     if (p.barcode.length === 13 && /^\d+$/.test(p.barcode)) {
@@ -91,7 +102,7 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
     return check === parseInt(code[12], 10);
   };
 
-  // Generate high-resolution barcode image data URL
+  // Generate high-resolution razor-sharp vector SVG barcode (zero blur on screen and thermal print)
   const barcodeImageDataUrl = useMemo(() => {
     if (!customBarcode || !customBarcode.trim()) return '';
     const cleanCode = customBarcode.trim();
@@ -103,46 +114,65 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
       targetFormat = 'CODE128';
     }
 
+    // Calculate barcode bar height dynamically based on user-chosen barcodeHeightMm
+    // Calculate standard barcode bar height in dots for 203 DPI thermal printing
+    const calculatedBarHeight = Math.max(
+      35,
+      Math.min(80, Math.round(barcodeHeightMm * 4))
+    );
+
     try {
-      const canvas = document.createElement('canvas');
-      const isCompact = sheetFormat === 'a4_65' || sheetFormat === 'thermal_38x25';
-      JsBarcode(canvas, cleanCode, {
+      const svgNode = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      JsBarcode(svgNode, cleanCode, {
         format: targetFormat,
-        width: isCompact ? 1.5 : 2,
-        height: isCompact ? 36 : 50,
+        width: 2,
+        height: calculatedBarHeight,
         displayValue: showBarcodeText,
-        fontSize: isCompact ? 10 : 13,
+        fontSize: 14,
+        fontOptions: 'bold',
         font: 'monospace',
-        textMargin: 3,
-        margin: 4,
+        textMargin: 2,
+        margin: 8, // Standard quiet zone (white space margins) mandatory for scanner recognition
         background: '#ffffff',
         lineColor: '#000000',
       });
-      return canvas.toDataURL('image/png');
+      svgNode.setAttribute('shape-rendering', 'crispEdges');
+      const xml = new XMLSerializer().serializeToString(svgNode);
+      return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
     } catch (e) {
-      // Secondary fallback to universal CODE128
+      // Secondary fallback to universal CODE128 vector SVG
       try {
-        const canvas = document.createElement('canvas');
-        JsBarcode(canvas, cleanCode, {
+        const svgNode = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        JsBarcode(svgNode, cleanCode, {
           format: 'CODE128',
           width: 2,
-          height: 48,
+          height: calculatedBarHeight,
           displayValue: showBarcodeText,
+          fontSize: 14,
+          fontOptions: 'bold',
+          font: 'monospace',
+          textMargin: 2,
+          margin: 8,
           background: '#ffffff',
           lineColor: '#000000',
         });
-        return canvas.toDataURL('image/png');
+        svgNode.setAttribute('shape-rendering', 'crispEdges');
+        const xml = new XMLSerializer().serializeToString(svgNode);
+        return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
       } catch (fallbackErr) {
         console.warn('Barcode rendering error:', fallbackErr);
         return '';
       }
     }
-  }, [customBarcode, barcodeFormat, showBarcodeText, sheetFormat]);
+  }, [customBarcode, barcodeFormat, showBarcodeText, barcodeHeightMm]);
 
   // When sheet format changes, update recommended label count preset
   const handleFormatChange = (fmt: SheetFormat) => {
     setSheetFormat(fmt);
-    if (fmt === 'a4_24') setLabelCount(24);
+    if (fmt === 'thermal_35x22_triple' || fmt === 'thermal_35x22_triple_compact') setLabelCount(30);
+    else if (fmt === 'thermal_35x22_dual') setLabelCount(20);
+    else if (fmt === 'thermal_35x22') setLabelCount(10);
+    else if (fmt === 'a4_24') setLabelCount(24);
     else if (fmt === 'a4_40') setLabelCount(40);
     else if (fmt === 'a4_65') setLabelCount(65);
     else if (fmt === 'thermal_50x30' || fmt === 'thermal_38x25') setLabelCount(10);
@@ -162,9 +192,14 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
   // Grid column styles for preview & print
   const getGridColumns = (fmt: SheetFormat) => {
     switch (fmt) {
+      case 'thermal_35x22':
       case 'thermal_50x30':
       case 'thermal_38x25':
         return '1fr';
+      case 'thermal_35x22_dual':
+        return 'repeat(2, 35mm)';
+      case 'thermal_35x22_triple':
+        return 'repeat(3, 35mm)';
       case 'a4_24':
         return 'repeat(3, 1fr)';
       case 'a4_40':
@@ -172,7 +207,7 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
       case 'a4_65':
         return 'repeat(5, 1fr)';
       default:
-        return 'repeat(3, 1fr)';
+        return '1fr';
     }
   };
 
@@ -202,7 +237,7 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
             <div>
               <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Barcode Sticker Designer</h3>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
-                Generate Code 128 & EAN-13 adhesive labels
+                Calibrated for TVS LP 46 DLITE (35×22mm Thermal) & Sticker Sheets
               </p>
             </div>
           </div>
@@ -221,7 +256,6 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                     setSelectedProduct(null);
                     setCustomBarcode('');
                     setProductTitle('');
-                    setProductPrice('');
                     return;
                   }
                   const p = products.find((x) => x.id === parseInt(val, 10));
@@ -275,31 +309,17 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
               </div>
             </div>
 
-            {/* Title & Price */}
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.75rem' }}>
-              <div>
-                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                  Label Product Title
-                </label>
-                <input
-                  type="text"
-                  value={productTitle}
-                  onChange={(e) => setProductTitle(e.target.value)}
-                  placeholder="e.g. Organic Green Tea"
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                  Selling Price ({currency})
-                </label>
-                <input
-                  type="number"
-                  value={productPrice}
-                  onChange={(e) => setProductPrice(e.target.value)}
-                  placeholder="0.00"
-                />
-              </div>
+            {/* Title */}
+            <div>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
+                Label Product Title
+              </label>
+              <input
+                type="text"
+                value={productTitle}
+                onChange={(e) => setProductTitle(e.target.value)}
+                placeholder="e.g. Organic Green Tea"
+              />
             </div>
 
             {/* Sheet Template & Copy Count */}
@@ -312,11 +332,15 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                   value={sheetFormat}
                   onChange={(e) => handleFormatChange(e.target.value as any)}
                 >
-                  <option value="a4_24">A4 Sheet — 24 Labels (3x8 Grid, 70x37mm)</option>
-                  <option value="a4_40">A4 Sheet — 40 Labels (4x10 Grid, 52x30mm)</option>
+                  <option value="thermal_35x22_triple">TVS LP 46 DLITE — 105x22 mm (3 Columns: 35x22 mm × 3 Stickers per Row) ★ Default</option>
+                  <option value="thermal_35x22_triple_compact">TVS LP 46 DLITE — 108x22 mm (3 Columns: 35x22 mm × 3 Compact Roll)</option>
+                  <option value="thermal_35x22_dual">TVS LP 46 DLITE — 35x22 mm (2 Columns / 2-Across)</option>
+                  <option value="thermal_35x22">TVS LP 46 DLITE — 35x22 mm (1 Column / Single Roll)</option>
+                  <option value="thermal_50x30">Thermal Roll — 50x30 mm (Single)</option>
+                  <option value="thermal_38x25">Thermal Roll — 38x25 mm (Mini)</option>
                   <option value="a4_65">A4 Sheet — 65 Labels (5x13 Grid, 38x21mm)</option>
-                  <option value="thermal_50x30">Thermal Label Roll (50x30mm Single)</option>
-                  <option value="thermal_38x25">Thermal Label Roll (38x25mm Mini)</option>
+                  <option value="a4_40">A4 Sheet — 40 Labels (4x10 Grid, 52x30mm)</option>
+                  <option value="a4_24">A4 Sheet — 24 Labels (3x8 Grid, 70x37mm)</option>
                 </select>
               </div>
 
@@ -334,21 +358,69 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
               </div>
             </div>
 
+            {/* Margin & Size Calibration Controls */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.6rem' }}>
+              <div>
+                <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
+                  Barcode Height
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <input
+                    type="number"
+                    min="10"
+                    max="19"
+                    step="0.5"
+                    value={barcodeHeightMm}
+                    onChange={(e) => setBarcodeHeightMm(Math.max(10, Math.min(19, parseFloat(e.target.value) || 16.5)))}
+                    style={{ width: '100%' }}
+                  />
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>mm</span>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
+                  Left & Right Margin
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <input
+                    type="number"
+                    min="0"
+                    max="8"
+                    step="0.5"
+                    value={stickerMarginX}
+                    onChange={(e) => setStickerMarginX(Math.max(0, parseFloat(e.target.value) || 0))}
+                    style={{ width: '100%' }}
+                  />
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>mm</span>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
+                  Roll Left Offset
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <input
+                    type="number"
+                    min="0"
+                    max="15"
+                    step="0.5"
+                    value={rollLeftOffset}
+                    onChange={(e) => setRollLeftOffset(Math.max(0, parseFloat(e.target.value) || 0))}
+                    style={{ width: '100%' }}
+                  />
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>mm</span>
+                </div>
+              </div>
+            </div>
+
             {/* Elements Toggles */}
             <div>
               <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.45rem' }}>
                 Included Sticker Elements:
               </label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={showShopName}
-                    onChange={(e) => setShowShopName(e.target.checked)}
-                    style={{ width: 'auto' }}
-                  />
-                  <span>Shop Name</span>
-                </label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.8rem' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
                   <input
                     type="checkbox"
@@ -357,15 +429,6 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                     style={{ width: 'auto' }}
                   />
                   <span>Product Title</span>
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={showPrice}
-                    onChange={(e) => setShowPrice(e.target.checked)}
-                    style={{ width: 'auto' }}
-                  />
-                  <span>MRP Price</span>
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
                   <input
@@ -403,46 +466,66 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
 
         {/* Right: Live Single Sticker Preview */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <h4
+          <div
             style={{
-              fontSize: '0.85rem',
-              color: 'var(--text-muted)',
-              marginBottom: '1rem',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              width: '100%',
+              maxWidth: sheetFormat.includes('35x22') ? '220px' : '260px',
+              marginBottom: '0.85rem',
             }}
           >
-            Live High-Resolution Sticker Preview
-          </h4>
+            <h4
+              style={{
+                fontSize: '0.85rem',
+                color: 'var(--text-muted)',
+                margin: 0,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+              }}
+            >
+              Sticker Preview
+            </h4>
+            <span
+              style={{
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: '4px',
+                background: 'rgba(59, 130, 246, 0.15)',
+                color: '#60a5fa',
+              }}
+            >
+              {sheetFormat === 'thermal_35x22_triple'
+                ? '1 Row 3 Columns (35×22mm)'
+                : sheetFormat === 'thermal_35x22_dual'
+                ? '2 Columns (35×22mm)'
+                : sheetFormat === 'thermal_35x22'
+                ? '1 Column (35×22mm)'
+                : sheetFormat.replace('thermal_', '').replace('a4_', 'A4 ')}
+            </span>
+          </div>
 
           {/* Realistic Adhesive Sticker Card */}
           <div
             style={{
               background: '#ffffff',
               color: '#000000',
-              padding: '12px 14px',
+              padding: sheetFormat.includes('35x22') ? `10px ${Math.max(6, stickerMarginX * 5)}px` : '12px 14px',
               borderRadius: '6px',
               boxShadow: '0 12px 35px rgba(0, 0, 0, 0.45)',
               textAlign: 'center',
-              width: sheetFormat.startsWith('thermal') ? '240px' : '260px',
+              width: sheetFormat.includes('35x22') ? '210px' : sheetFormat.startsWith('thermal') ? '240px' : '260px',
+              minHeight: sheetFormat.includes('35x22') ? '132px' : 'auto',
               border: '1px solid #cbd5e1',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxSizing: 'border-box',
             }}
           >
-            {showShopName && (
-              <div
-                style={{
-                  fontSize: '9px',
-                  fontWeight: 800,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                  color: '#475569',
-                  marginBottom: '2px',
-                }}
-              >
-                {shopName}
-              </div>
-            )}
-
             {showProductName && (
               <div
                 style={{
@@ -452,6 +535,7 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
+                  maxWidth: '100%',
                 }}
               >
                 {productTitle || 'Product Name'}
@@ -459,11 +543,18 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
             )}
 
             {barcodeImageDataUrl ? (
-              <div style={{ display: 'flex', justifyContent: 'center', margin: '2px 0' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0', width: '100%' }}>
                 <img
                   src={barcodeImageDataUrl}
                   alt="Barcode Preview"
-                  style={{ maxWidth: '100%', height: 'auto', display: 'block' }}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '85px',
+                    height: 'auto',
+                    width: 'auto',
+                    display: 'block',
+                    imageRendering: 'crisp-edges',
+                  }}
                 />
               </div>
             ) : (
@@ -481,121 +572,508 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                 Select a product or enter a barcode to view preview
               </div>
             )}
-
-            {showPrice && (
-              <div
-                style={{
-                  fontSize: '13px',
-                  fontWeight: 800,
-                  marginTop: '4px',
-                }}
-              >
-                MRP: {currency}{Number(productPrice || 0).toFixed(2)}
-              </div>
-            )}
           </div>
 
           <div
             style={{
-              marginTop: '1.5rem',
+              marginTop: '1.25rem',
+              padding: '0.75rem',
+              borderRadius: '6px',
+              background: 'rgba(59, 130, 246, 0.08)',
+              border: '1px solid rgba(59, 130, 246, 0.2)',
               fontSize: '0.75rem',
               color: 'var(--text-muted)',
-              textAlign: 'center',
+              textAlign: 'left',
               maxWidth: '320px',
               lineHeight: 1.5,
             }}
           >
-            Ready for standard A4 sticker paper (laser/inkjet) and direct thermal label printers. Margins are calibrated automatically.
+            <div style={{ color: '#60a5fa', fontWeight: 700, marginBottom: '4px' }}>
+              🖨️ TVS LP 46 DLITE Print Calibration:
+            </div>
+            • <strong>Printer</strong>: TVS LP 46 Dlite (203 DPI)<br />
+            • <strong>Roll Layout</strong>: 1 Row with 3 Stickers (105×22mm Roll, 3 × 35×22mm Stickers)<br />
+            • <strong>Barcode Height</strong>: {barcodeHeightMm}mm (Enlarged for high-speed scanning)<br />
+            • <strong>Sticker Margins</strong>: {stickerMarginX}mm Left & Right per sticker (Adjustable above)<br />
+            • <strong>Driver Paper Size</strong>: 105×22mm (or 3-Up 35×22 on 105mm Width)<br />
+            • <strong>Margins</strong>: None (0mm)<br />
+            • <strong>Scale</strong>: 100% (Default)<br />
+            • <strong>Headers & Footers</strong>: Off
           </div>
         </div>
       </div>
 
-      {/* Real Physical Print Portal Render */}
+      {/* Real Physical Print Portal Render - Specially Calibrated for TVS LP 46 DLITE */}
       {isPrinting &&
         portalRoot &&
         createPortal(
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: getGridColumns(sheetFormat),
-              gap: sheetFormat.startsWith('thermal') ? '2mm' : '3mm',
-              width: '100%',
-              margin: '0 auto',
-              padding: '4mm',
-              boxSizing: 'border-box',
-              backgroundColor: '#ffffff',
-            }}
-          >
-            {Array.from({ length: labelCount }).map((_, i) => (
+          <>
+            <style>{`
+              @page {
+                size: ${
+                  sheetFormat === 'thermal_35x22_triple'
+                    ? '105mm 22mm'
+                    : sheetFormat === 'thermal_35x22_triple_compact'
+                    ? '108mm 22mm'
+                    : sheetFormat === 'thermal_35x22_dual'
+                    ? '72mm 22mm'
+                    : sheetFormat === 'thermal_35x22'
+                    ? '35mm 22mm'
+                    : sheetFormat === 'thermal_50x30'
+                    ? '50mm 30mm'
+                    : sheetFormat === 'thermal_38x25'
+                    ? '38mm 25mm'
+                    : 'A4 portrait'
+                } !important;
+                margin: 0mm !important;
+              }
+              @media print {
+                html, body {
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  background: #ffffff !important;
+                  color: #000000 !important;
+                  -webkit-print-color-adjust: exact !important;
+                  print-color-adjust: exact !important;
+                }
+                #print-portal {
+                  display: block !important;
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  background: #ffffff !important;
+                }
+                .tvs-barcode-img {
+                  image-rendering: -webkit-optimize-contrast !important;
+                  image-rendering: crisp-edges !important;
+                  image-rendering: pixelated !important;
+                }
+              }
+            `}</style>
+
+            {sheetFormat === 'thermal_35x22_triple' ? (
+              // TVS LP 46 DLITE 1-Row 3-Stickers Mode: 105mm width x 22mm height roll (3 x 35x22mm stickers)
               <div
-                key={i}
                 style={{
-                  border: '1px dashed #bbb',
-                  padding: sheetFormat === 'a4_65' ? '1.5mm' : '2.5mm',
-                  textAlign: 'center',
-                  fontFamily: 'sans-serif',
-                  color: '#000000',
-                  backgroundColor: '#ffffff',
-                  pageBreakInside: 'avoid',
-                  borderRadius: '3px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  width: '105mm',
+                  margin: '0 auto',
+                  padding: '0',
+                  paddingLeft: `${rollLeftOffset}mm`,
                   boxSizing: 'border-box',
+                  backgroundColor: '#ffffff',
                 }}
               >
-                {showShopName && (
+                {Array.from({ length: Math.ceil(labelCount / 3) }).map((_, rowIndex) => (
                   <div
+                    key={rowIndex}
                     style={{
-                      fontSize: sheetFormat === 'a4_65' ? '7px' : '8.5px',
-                      fontWeight: 'bold',
-                      textTransform: 'uppercase',
-                      color: '#333',
-                    }}
-                  >
-                    {shopName}
-                  </div>
-                )}
-
-                {showProductName && (
-                  <div
-                    style={{
-                      fontSize: sheetFormat === 'a4_65' ? '8px' : '10px',
-                      fontWeight: 'bold',
+                      display: 'grid',
+                      gridTemplateColumns: '35mm 35mm 35mm',
+                      width: '105mm',
+                      height: '22mm',
+                      minHeight: '22mm',
+                      maxHeight: '22mm',
+                      pageBreakAfter: 'always',
+                      breakAfter: 'page',
+                      pageBreakInside: 'avoid',
+                      breakInside: 'avoid',
+                      boxSizing: 'border-box',
                       overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      maxWidth: '100%',
-                      margin: '1px 0',
+                      backgroundColor: '#ffffff',
                     }}
                   >
-                    {productTitle}
-                  </div>
-                )}
+                    {[0, 1, 2].map((colIndex) => {
+                      const itemIdx = rowIndex * 3 + colIndex;
+                      if (itemIdx >= labelCount) {
+                        return <div key={colIndex} style={{ width: '35mm', height: '22mm' }} />;
+                      }
+                      return (
+                        <div
+                          key={colIndex}
+                          style={{
+                            width: '35mm',
+                            height: '22mm',
+                            minHeight: '22mm',
+                            maxHeight: '22mm',
+                            padding: `0.4mm ${stickerMarginX}mm`,
+                            textAlign: 'center',
+                            fontFamily: 'Arial, sans-serif',
+                            color: '#000000',
+                            backgroundColor: '#ffffff',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxSizing: 'border-box',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {showProductName && (
+                            <div
+                              style={{
+                                fontSize: '8.5px',
+                                fontWeight: 700,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                maxWidth: `calc(35mm - ${stickerMarginX * 2}mm)`,
+                                margin: '0 0 0.2mm 0',
+                                color: '#000000',
+                                lineHeight: 1.1,
+                              }}
+                            >
+                              {productTitle}
+                            </div>
+                          )}
 
-                {barcodeImageDataUrl && (
-                  <img
-                    src={barcodeImageDataUrl}
-                    alt="Sticker Barcode"
-                    style={{ maxWidth: '100%', height: 'auto', display: 'block', margin: '1px 0' }}
-                  />
-                )}
-
-                {showPrice && (
-                  <div
-                    style={{
-                      fontSize: sheetFormat === 'a4_65' ? '9px' : '11px',
-                      fontWeight: 'bold',
-                      marginTop: '1px',
-                    }}
-                  >
-                    MRP: {currency}{Number(productPrice || 0).toFixed(2)}
+                          {barcodeImageDataUrl && (
+                            <img
+                              src={barcodeImageDataUrl}
+                              alt="Barcode"
+                              className="tvs-barcode-img"
+                              style={{
+                                maxWidth: `calc(35mm - ${stickerMarginX * 2}mm)`,
+                                maxHeight: `${barcodeHeightMm}mm`,
+                                height: 'auto',
+                                width: 'auto',
+                                display: 'block',
+                                margin: '0 auto',
+                              }}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                )}
+                ))}
               </div>
-            ))}
-          </div>,
+            ) : sheetFormat === 'thermal_35x22_triple_compact' ? (
+              // TVS LP 46 DLITE 1-Row 3-Columns Compact Mode: 35mm + 1.5mm gap + 35mm + 1.5mm gap + 35mm = 108mm width, 22mm height
+              <div
+                style={{
+                  width: '108mm',
+                  margin: '0 auto',
+                  padding: '0',
+                  boxSizing: 'border-box',
+                  backgroundColor: '#ffffff',
+                }}
+              >
+                {Array.from({ length: Math.ceil(labelCount / 3) }).map((_, rowIndex) => (
+                  <div
+                    key={rowIndex}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '35mm 35mm 35mm',
+                      columnGap: '1.5mm',
+                      width: '108mm',
+                      height: '22mm',
+                      minHeight: '22mm',
+                      maxHeight: '22mm',
+                      pageBreakAfter: 'always',
+                      breakAfter: 'page',
+                      pageBreakInside: 'avoid',
+                      breakInside: 'avoid',
+                      boxSizing: 'border-box',
+                      overflow: 'hidden',
+                      backgroundColor: '#ffffff',
+                    }}
+                  >
+                    {[0, 1, 2].map((colIndex) => {
+                      const itemIdx = rowIndex * 3 + colIndex;
+                      if (itemIdx >= labelCount) {
+                        return <div key={colIndex} style={{ width: '35mm', height: '22mm' }} />;
+                      }
+                      return (
+                        <div
+                          key={colIndex}
+                          style={{
+                            width: '35mm',
+                            height: '22mm',
+                            minHeight: '22mm',
+                            maxHeight: '22mm',
+                            padding: `0.4mm ${stickerMarginX}mm`,
+                            textAlign: 'center',
+                            fontFamily: 'Arial, sans-serif',
+                            color: '#000000',
+                            backgroundColor: '#ffffff',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxSizing: 'border-box',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {showProductName && (
+                            <div
+                              style={{
+                                fontSize: '8.5px',
+                                fontWeight: 700,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                maxWidth: `calc(35mm - ${stickerMarginX * 2}mm)`,
+                                margin: '0 0 0.2mm 0',
+                                color: '#000000',
+                                lineHeight: 1.1,
+                              }}
+                            >
+                              {productTitle}
+                            </div>
+                          )}
+
+                          {barcodeImageDataUrl && (
+                            <img
+                              src={barcodeImageDataUrl}
+                              alt="Barcode"
+                              className="tvs-barcode-img"
+                              style={{
+                                maxWidth: `calc(35mm - ${stickerMarginX * 2}mm)`,
+                                maxHeight: `${barcodeHeightMm}mm`,
+                                height: 'auto',
+                                width: 'auto',
+                                display: 'block',
+                                margin: '0 auto',
+                              }}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            ) : sheetFormat === 'thermal_35x22_dual' ? (
+              // TVS LP 46 DLITE 2-Across Mode: 35mm + 2mm gap + 35mm = 72mm width per row, 22mm height
+              <div
+                style={{
+                  width: '72mm',
+                  margin: '0 auto',
+                  padding: '0',
+                  boxSizing: 'border-box',
+                  backgroundColor: '#ffffff',
+                }}
+              >
+                {Array.from({ length: Math.ceil(labelCount / 2) }).map((_, rowIndex) => (
+                  <div
+                    key={rowIndex}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '35mm 35mm',
+                      columnGap: '2mm',
+                      width: '72mm',
+                      height: '22mm',
+                      minHeight: '22mm',
+                      maxHeight: '22mm',
+                      pageBreakAfter: 'always',
+                      breakAfter: 'page',
+                      pageBreakInside: 'avoid',
+                      breakInside: 'avoid',
+                      boxSizing: 'border-box',
+                      overflow: 'hidden',
+                      backgroundColor: '#ffffff',
+                    }}
+                  >
+                    {[0, 1].map((colIndex) => {
+                      const itemIdx = rowIndex * 2 + colIndex;
+                      if (itemIdx >= labelCount) {
+                        return <div key={colIndex} style={{ width: '35mm', height: '22mm' }} />;
+                      }
+                      return (
+                        <div
+                          key={colIndex}
+                          style={{
+                            width: '35mm',
+                            height: '22mm',
+                            minHeight: '22mm',
+                            maxHeight: '22mm',
+                            padding: `0.4mm ${stickerMarginX}mm`,
+                            textAlign: 'center',
+                            fontFamily: 'Arial, sans-serif',
+                            color: '#000000',
+                            backgroundColor: '#ffffff',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxSizing: 'border-box',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {showProductName && (
+                            <div
+                              style={{
+                                fontSize: '8.5px',
+                                fontWeight: 700,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                maxWidth: `calc(35mm - ${stickerMarginX * 2}mm)`,
+                                margin: '0 0 0.2mm 0',
+                                color: '#000000',
+                                lineHeight: 1.1,
+                              }}
+                            >
+                              {productTitle}
+                            </div>
+                          )}
+
+                          {barcodeImageDataUrl && (
+                            <img
+                              src={barcodeImageDataUrl}
+                              alt="Barcode"
+                              className="tvs-barcode-img"
+                              style={{
+                                maxWidth: `calc(35mm - ${stickerMarginX * 2}mm)`,
+                                maxHeight: `${barcodeHeightMm}mm`,
+                                height: 'auto',
+                                width: 'auto',
+                                display: 'block',
+                                margin: '0 auto',
+                              }}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            ) : sheetFormat === 'thermal_35x22' ? (
+              // TVS LP 46 DLITE Single 1-Up Roll Mode: 35mm width x 22mm height per label
+              <div
+                style={{
+                  width: '35mm',
+                  margin: '0 auto',
+                  padding: '0',
+                  boxSizing: 'border-box',
+                  backgroundColor: '#ffffff',
+                }}
+              >
+                {Array.from({ length: labelCount }).map((_, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      width: '35mm',
+                      height: '22mm',
+                      minHeight: '22mm',
+                      maxHeight: '22mm',
+                      padding: `0.4mm ${stickerMarginX}mm`,
+                      textAlign: 'center',
+                      fontFamily: 'Arial, sans-serif',
+                      color: '#000000',
+                      backgroundColor: '#ffffff',
+                      pageBreakAfter: 'always',
+                      breakAfter: 'page',
+                      pageBreakInside: 'avoid',
+                      breakInside: 'avoid',
+                      boxSizing: 'border-box',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      overflow: 'hidden',
+                      margin: '0 auto',
+                    }}
+                  >
+                    {showProductName && (
+                      <div
+                        style={{
+                          fontSize: '8.5px',
+                          fontWeight: 700,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          maxWidth: `calc(35mm - ${stickerMarginX * 2}mm)`,
+                          margin: '0 0 0.2mm 0',
+                          color: '#000000',
+                          lineHeight: 1.1,
+                        }}
+                      >
+                        {productTitle}
+                      </div>
+                    )}
+
+                    {barcodeImageDataUrl && (
+                      <img
+                        src={barcodeImageDataUrl}
+                        alt="Barcode"
+                        className="tvs-barcode-img"
+                        style={{
+                          maxWidth: `calc(35mm - ${stickerMarginX * 2}mm)`,
+                          maxHeight: `${barcodeHeightMm}mm`,
+                          height: 'auto',
+                          width: 'auto',
+                          display: 'block',
+                          margin: '0 auto',
+                        }}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              // Standard A4 Sheet & Other Roll Formats
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: getGridColumns(sheetFormat),
+                  gap: '3mm',
+                  width: '100%',
+                  margin: '0 auto',
+                  padding: '4mm',
+                  boxSizing: 'border-box',
+                  backgroundColor: '#ffffff',
+                }}
+              >
+                {Array.from({ length: labelCount }).map((_, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      border: '1px dashed #bbb',
+                      padding: sheetFormat === 'a4_65' ? '1.5mm' : '2.5mm',
+                      textAlign: 'center',
+                      fontFamily: 'sans-serif',
+                      color: '#000000',
+                      backgroundColor: '#ffffff',
+                      pageBreakInside: 'avoid',
+                      borderRadius: '3px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+
+                    {showProductName && (
+                      <div
+                        style={{
+                          fontSize: sheetFormat === 'a4_65' ? '8px' : '10px',
+                          fontWeight: 'bold',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          maxWidth: '100%',
+                          margin: '1px 0',
+                        }}
+                      >
+                        {productTitle}
+                      </div>
+                    )}
+
+                    {barcodeImageDataUrl && (
+                      <img
+                        src={barcodeImageDataUrl}
+                        alt="Sticker Barcode"
+                        className="tvs-barcode-img"
+                        style={{ maxWidth: '100%', height: 'auto', display: 'block', margin: '1px 0' }}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>,
           portalRoot
         )}
     </div>

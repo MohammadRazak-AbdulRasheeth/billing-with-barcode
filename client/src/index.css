@@ -415,6 +415,25 @@ button {
   z-index: 15;
 }
 
+@keyframes focus-pulse {
+  0% {
+    transform: translate(-50%, -50%) scale(1.35);
+    opacity: 1;
+    border-color: #38bdf8;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.0);
+    opacity: 0.9;
+    border-color: #10b981;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(0.9);
+    opacity: 0;
+    border-color: #10b981;
+  }
+}
+
+
 /* Target Corner Brackets on Camera Viewfinder */
 .scanner-corner {
   position: absolute;
