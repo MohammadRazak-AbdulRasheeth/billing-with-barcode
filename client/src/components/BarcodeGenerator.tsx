@@ -21,6 +21,8 @@ interface BarcodeGeneratorProps {
 }
 
 type SheetFormat =
+  | 'thermal_25x10_quad'
+  | 'thermal_25x10_quad_gap'
   | 'thermal_35x22_triple'
   | 'thermal_35x22_triple_compact'
   | 'thermal_35x22_dual'
@@ -114,25 +116,31 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
       targetFormat = 'CODE128';
     }
 
+    const is25x10 = sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap';
+
     // Calculate barcode bar height dynamically based on user-chosen barcodeHeightMm
     // Calculate standard barcode bar height in dots for 203 DPI thermal printing
-    const calculatedBarHeight = Math.max(
-      35,
-      Math.min(80, Math.round(barcodeHeightMm * 4))
-    );
+    const calculatedBarHeight = is25x10
+      ? Math.max(18, Math.min(38, Math.round(barcodeHeightMm * 4)))
+      : Math.max(35, Math.min(80, Math.round(barcodeHeightMm * 4)));
+
+    const barcodeQuietZone = is25x10 ? 3 : 8;
+    const barcodeFontSize = is25x10 ? 10 : 14;
+    const barcodeTextMargin = is25x10 ? 1 : 2;
+    const barcodeModuleWidth = is25x10 ? 1.5 : 2;
 
     try {
       const svgNode = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       JsBarcode(svgNode, cleanCode, {
         format: targetFormat,
-        width: 2,
+        width: barcodeModuleWidth,
         height: calculatedBarHeight,
         displayValue: showBarcodeText,
-        fontSize: 14,
+        fontSize: barcodeFontSize,
         fontOptions: 'bold',
         font: 'monospace',
-        textMargin: 2,
-        margin: 8, // Standard quiet zone (white space margins) mandatory for scanner recognition
+        textMargin: barcodeTextMargin,
+        margin: barcodeQuietZone, // Standard quiet zone (white space margins) mandatory for scanner recognition
         background: '#ffffff',
         lineColor: '#000000',
       });
@@ -145,14 +153,14 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
         const svgNode = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         JsBarcode(svgNode, cleanCode, {
           format: 'CODE128',
-          width: 2,
+          width: barcodeModuleWidth,
           height: calculatedBarHeight,
           displayValue: showBarcodeText,
-          fontSize: 14,
+          fontSize: barcodeFontSize,
           fontOptions: 'bold',
           font: 'monospace',
-          textMargin: 2,
-          margin: 8,
+          textMargin: barcodeTextMargin,
+          margin: barcodeQuietZone,
           background: '#ffffff',
           lineColor: '#000000',
         });
@@ -164,15 +172,28 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
         return '';
       }
     }
-  }, [customBarcode, barcodeFormat, showBarcodeText, barcodeHeightMm]);
+  }, [customBarcode, barcodeFormat, showBarcodeText, barcodeHeightMm, sheetFormat]);
 
   // When sheet format changes, update recommended label count preset
   const handleFormatChange = (fmt: SheetFormat) => {
     setSheetFormat(fmt);
-    if (fmt === 'thermal_35x22_triple' || fmt === 'thermal_35x22_triple_compact') setLabelCount(30);
-    else if (fmt === 'thermal_35x22_dual') setLabelCount(20);
-    else if (fmt === 'thermal_35x22') setLabelCount(10);
-    else if (fmt === 'a4_24') setLabelCount(24);
+    if (fmt === 'thermal_25x10_quad' || fmt === 'thermal_25x10_quad_gap') {
+      setLabelCount(40);
+      setBarcodeHeightMm(7);
+      setStickerMarginX(1);
+    } else if (fmt === 'thermal_35x22_triple' || fmt === 'thermal_35x22_triple_compact') {
+      setLabelCount(30);
+      setBarcodeHeightMm(16.5);
+      setStickerMarginX(2);
+    } else if (fmt === 'thermal_35x22_dual') {
+      setLabelCount(20);
+      setBarcodeHeightMm(16.5);
+      setStickerMarginX(2);
+    } else if (fmt === 'thermal_35x22') {
+      setLabelCount(10);
+      setBarcodeHeightMm(16.5);
+      setStickerMarginX(2);
+    } else if (fmt === 'a4_24') setLabelCount(24);
     else if (fmt === 'a4_40') setLabelCount(40);
     else if (fmt === 'a4_65') setLabelCount(65);
     else if (fmt === 'thermal_50x30' || fmt === 'thermal_38x25') setLabelCount(10);
@@ -199,7 +220,11 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
       case 'thermal_35x22_dual':
         return 'repeat(2, 35mm)';
       case 'thermal_35x22_triple':
+      case 'thermal_35x22_triple_compact':
         return 'repeat(3, 35mm)';
+      case 'thermal_25x10_quad':
+      case 'thermal_25x10_quad_gap':
+        return 'repeat(4, 25mm)';
       case 'a4_24':
         return 'repeat(3, 1fr)';
       case 'a4_40':
@@ -332,6 +357,8 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                   value={sheetFormat}
                   onChange={(e) => handleFormatChange(e.target.value as any)}
                 >
+                  <option value="thermal_25x10_quad">Thermal Roll — 100x10 mm (4 Columns: 25x10 mm × 4 Stickers per Row) ★ 25x10mm 4-Up</option>
+                  <option value="thermal_25x10_quad_gap">Thermal Roll — 104x10 mm (4 Columns: 25x10 mm with 1mm Gap / 4-Up)</option>
                   <option value="thermal_35x22_triple">TVS LP 46 DLITE — 105x22 mm (3 Columns: 35x22 mm × 3 Stickers per Row) ★ Default</option>
                   <option value="thermal_35x22_triple_compact">TVS LP 46 DLITE — 108x22 mm (3 Columns: 35x22 mm × 3 Compact Roll)</option>
                   <option value="thermal_35x22_dual">TVS LP 46 DLITE — 35x22 mm (2 Columns / 2-Across)</option>
@@ -367,11 +394,17 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                   <input
                     type="number"
-                    min="10"
-                    max="19"
+                    min={sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap' ? "4" : "10"}
+                    max={sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap' ? "9.5" : "19"}
                     step="0.5"
                     value={barcodeHeightMm}
-                    onChange={(e) => setBarcodeHeightMm(Math.max(10, Math.min(19, parseFloat(e.target.value) || 16.5)))}
+                    onChange={(e) => {
+                      const isSmall = sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap';
+                      const minH = isSmall ? 4 : 10;
+                      const maxH = isSmall ? 9.5 : 19;
+                      const defH = isSmall ? 7 : 16.5;
+                      setBarcodeHeightMm(Math.max(minH, Math.min(maxH, parseFloat(e.target.value) || defH)));
+                    }}
                     style={{ width: '100%' }}
                   />
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>mm</span>
@@ -472,7 +505,7 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
               alignItems: 'center',
               justifyContent: 'space-between',
               width: '100%',
-              maxWidth: sheetFormat.includes('35x22') ? '220px' : '260px',
+              maxWidth: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap') ? '200px' : sheetFormat.includes('35x22') ? '220px' : '260px',
               marginBottom: '0.85rem',
             }}
           >
@@ -497,7 +530,9 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                 color: '#60a5fa',
               }}
             >
-              {sheetFormat === 'thermal_35x22_triple'
+              {sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap'
+                ? '1 Row 4 Columns (25×10mm)'
+                : sheetFormat === 'thermal_35x22_triple'
                 ? '1 Row 3 Columns (35×22mm)'
                 : sheetFormat === 'thermal_35x22_dual'
                 ? '2 Columns (35×22mm)'
@@ -512,12 +547,26 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
             style={{
               background: '#ffffff',
               color: '#000000',
-              padding: sheetFormat.includes('35x22') ? `10px ${Math.max(6, stickerMarginX * 5)}px` : '12px 14px',
+              padding: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap')
+                ? `6px ${Math.max(4, stickerMarginX * 4)}px`
+                : sheetFormat.includes('35x22')
+                ? `10px ${Math.max(6, stickerMarginX * 5)}px`
+                : '12px 14px',
               borderRadius: '6px',
               boxShadow: '0 12px 35px rgba(0, 0, 0, 0.45)',
               textAlign: 'center',
-              width: sheetFormat.includes('35x22') ? '210px' : sheetFormat.startsWith('thermal') ? '240px' : '260px',
-              minHeight: sheetFormat.includes('35x22') ? '132px' : 'auto',
+              width: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap')
+                ? '190px'
+                : sheetFormat.includes('35x22')
+                ? '210px'
+                : sheetFormat.startsWith('thermal')
+                ? '240px'
+                : '260px',
+              minHeight: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap')
+                ? '76px'
+                : sheetFormat.includes('35x22')
+                ? '132px'
+                : 'auto',
               border: '1px solid #cbd5e1',
               display: 'flex',
               flexDirection: 'column',
@@ -529,9 +578,9 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
             {showProductName && (
               <div
                 style={{
-                  fontSize: '11px',
+                  fontSize: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap') ? '8.5px' : '11px',
                   fontWeight: 700,
-                  marginBottom: '4px',
+                  marginBottom: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap') ? '2px' : '4px',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
@@ -549,7 +598,7 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                   alt="Barcode Preview"
                   style={{
                     maxWidth: '100%',
-                    maxHeight: '85px',
+                    maxHeight: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap') ? '48px' : '85px',
                     height: 'auto',
                     width: 'auto',
                     display: 'block',
@@ -589,13 +638,13 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
             }}
           >
             <div style={{ color: '#60a5fa', fontWeight: 700, marginBottom: '4px' }}>
-              🖨️ TVS LP 46 DLITE Print Calibration:
+              🖨️ {sheetFormat.includes('25x10') ? '25×10mm 4-Up Print Calibration:' : 'TVS LP 46 DLITE Print Calibration:'}
             </div>
-            • <strong>Printer</strong>: TVS LP 46 Dlite (203 DPI)<br />
-            • <strong>Roll Layout</strong>: 1 Row with 3 Stickers (105×22mm Roll, 3 × 35×22mm Stickers)<br />
-            • <strong>Barcode Height</strong>: {barcodeHeightMm}mm (Enlarged for high-speed scanning)<br />
-            • <strong>Sticker Margins</strong>: {stickerMarginX}mm Left & Right per sticker (Adjustable above)<br />
-            • <strong>Driver Paper Size</strong>: 105×22mm (or 3-Up 35×22 on 105mm Width)<br />
+            • <strong>Printer</strong>: {sheetFormat.includes('25x10') ? 'Thermal Barcode Printer (203 DPI)' : 'TVS LP 46 Dlite (203 DPI)'}<br />
+            • <strong>Roll Layout</strong>: {sheetFormat === 'thermal_25x10_quad' ? '1 Row with 4 Stickers (100×10mm Roll, 4 × 25×10mm Stickers)' : sheetFormat === 'thermal_25x10_quad_gap' ? '1 Row with 4 Stickers (104×10mm Roll with 1mm Gap)' : '1 Row with 3 Stickers (105×22mm Roll, 3 × 35×22mm Stickers)'}<br />
+            • <strong>Barcode Height</strong>: {barcodeHeightMm}mm<br />
+            • <strong>Sticker Margins</strong>: {stickerMarginX}mm Left & Right per sticker<br />
+            • <strong>Driver Paper Size</strong>: {sheetFormat === 'thermal_25x10_quad' ? '100×10mm (or 4-Up 25×10 on 100mm Width)' : sheetFormat === 'thermal_25x10_quad_gap' ? '104×10mm (or 4-Up 25×10 on 104mm Width)' : '105×22mm (or 3-Up 35×22 on 105mm Width)'}<br />
             • <strong>Margins</strong>: None (0mm)<br />
             • <strong>Scale</strong>: 100% (Default)<br />
             • <strong>Headers & Footers</strong>: Off
@@ -603,7 +652,7 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
         </div>
       </div>
 
-      {/* Real Physical Print Portal Render - Specially Calibrated for TVS LP 46 DLITE */}
+      {/* Real Physical Print Portal Render - Calibrated for TVS LP 46 DLITE & 25x10mm 4-Up Rolls */}
       {isPrinting &&
         portalRoot &&
         createPortal(
@@ -611,7 +660,11 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
             <style>{`
               @page {
                 size: ${
-                  sheetFormat === 'thermal_35x22_triple'
+                  sheetFormat === 'thermal_25x10_quad'
+                    ? '100mm 10mm'
+                    : sheetFormat === 'thermal_25x10_quad_gap'
+                    ? '104mm 10mm'
+                    : sheetFormat === 'thermal_35x22_triple'
                     ? '105mm 22mm'
                     : sheetFormat === 'thermal_35x22_triple_compact'
                     ? '108mm 22mm'
@@ -650,7 +703,200 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
               }
             `}</style>
 
-            {sheetFormat === 'thermal_35x22_triple' ? (
+            {sheetFormat === 'thermal_25x10_quad' ? (
+              // 1-Row 4-Columns (4-Across): 100mm width x 10mm height roll (4 x 25x10mm stickers per row)
+              <div
+                style={{
+                  width: '100mm',
+                  margin: '0 auto',
+                  padding: '0',
+                  paddingLeft: `${rollLeftOffset}mm`,
+                  boxSizing: 'border-box',
+                  backgroundColor: '#ffffff',
+                }}
+              >
+                {Array.from({ length: Math.ceil(labelCount / 4) }).map((_, rowIndex) => (
+                  <div
+                    key={rowIndex}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '25mm 25mm 25mm 25mm',
+                      width: '100mm',
+                      height: '10mm',
+                      minHeight: '10mm',
+                      maxHeight: '10mm',
+                      pageBreakAfter: 'always',
+                      breakAfter: 'page',
+                      pageBreakInside: 'avoid',
+                      breakInside: 'avoid',
+                      boxSizing: 'border-box',
+                      overflow: 'hidden',
+                      backgroundColor: '#ffffff',
+                    }}
+                  >
+                    {[0, 1, 2, 3].map((colIndex) => {
+                      const itemIdx = rowIndex * 4 + colIndex;
+                      if (itemIdx >= labelCount) {
+                        return <div key={colIndex} style={{ width: '25mm', height: '10mm' }} />;
+                      }
+                      return (
+                        <div
+                          key={colIndex}
+                          style={{
+                            width: '25mm',
+                            height: '10mm',
+                            minHeight: '10mm',
+                            maxHeight: '10mm',
+                            padding: `0.1mm ${stickerMarginX}mm`,
+                            textAlign: 'center',
+                            fontFamily: 'Arial, sans-serif',
+                            color: '#000000',
+                            backgroundColor: '#ffffff',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxSizing: 'border-box',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {showProductName && (
+                            <div
+                              style={{
+                                fontSize: '6.5px',
+                                fontWeight: 700,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                maxWidth: `calc(25mm - ${stickerMarginX * 2}mm)`,
+                                margin: '0 0 0.1mm 0',
+                                color: '#000000',
+                                lineHeight: 1.0,
+                              }}
+                            >
+                              {productTitle}
+                            </div>
+                          )}
+
+                          {barcodeImageDataUrl && (
+                            <img
+                              src={barcodeImageDataUrl}
+                              alt="Barcode"
+                              className="tvs-barcode-img"
+                              style={{
+                                maxWidth: `calc(25mm - ${stickerMarginX * 2}mm)`,
+                                maxHeight: `${barcodeHeightMm}mm`,
+                                height: 'auto',
+                                width: 'auto',
+                                display: 'block',
+                                margin: '0 auto',
+                              }}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            ) : sheetFormat === 'thermal_25x10_quad_gap' ? (
+              // 1-Row 4-Columns with 1mm Gap: 104mm width x 10mm height roll
+              <div
+                style={{
+                  width: '104mm',
+                  margin: '0 auto',
+                  padding: '0',
+                  paddingLeft: `${rollLeftOffset}mm`,
+                  boxSizing: 'border-box',
+                  backgroundColor: '#ffffff',
+                }}
+              >
+                {Array.from({ length: Math.ceil(labelCount / 4) }).map((_, rowIndex) => (
+                  <div
+                    key={rowIndex}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '25mm 25mm 25mm 25mm',
+                      columnGap: '1mm',
+                      width: '104mm',
+                      height: '10mm',
+                      minHeight: '10mm',
+                      maxHeight: '10mm',
+                      pageBreakAfter: 'always',
+                      breakAfter: 'page',
+                      pageBreakInside: 'avoid',
+                      breakInside: 'avoid',
+                      boxSizing: 'border-box',
+                      overflow: 'hidden',
+                      backgroundColor: '#ffffff',
+                    }}
+                  >
+                    {[0, 1, 2, 3].map((colIndex) => {
+                      const itemIdx = rowIndex * 4 + colIndex;
+                      if (itemIdx >= labelCount) {
+                        return <div key={colIndex} style={{ width: '25mm', height: '10mm' }} />;
+                      }
+                      return (
+                        <div
+                          key={colIndex}
+                          style={{
+                            width: '25mm',
+                            height: '10mm',
+                            minHeight: '10mm',
+                            maxHeight: '10mm',
+                            padding: `0.1mm ${stickerMarginX}mm`,
+                            textAlign: 'center',
+                            fontFamily: 'Arial, sans-serif',
+                            color: '#000000',
+                            backgroundColor: '#ffffff',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxSizing: 'border-box',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {showProductName && (
+                            <div
+                              style={{
+                                fontSize: '6.5px',
+                                fontWeight: 700,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                maxWidth: `calc(25mm - ${stickerMarginX * 2}mm)`,
+                                margin: '0 0 0.1mm 0',
+                                color: '#000000',
+                                lineHeight: 1.0,
+                              }}
+                            >
+                              {productTitle}
+                            </div>
+                          )}
+
+                          {barcodeImageDataUrl && (
+                            <img
+                              src={barcodeImageDataUrl}
+                              alt="Barcode"
+                              className="tvs-barcode-img"
+                              style={{
+                                maxWidth: `calc(25mm - ${stickerMarginX * 2}mm)`,
+                                maxHeight: `${barcodeHeightMm}mm`,
+                                height: 'auto',
+                                width: 'auto',
+                                display: 'block',
+                                margin: '0 auto',
+                              }}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            ) : sheetFormat === 'thermal_35x22_triple' ? (
               // TVS LP 46 DLITE 1-Row 3-Stickers Mode: 105mm width x 22mm height roll (3 x 35x22mm stickers)
               <div
                 style={{
