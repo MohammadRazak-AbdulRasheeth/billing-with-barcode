@@ -167,8 +167,8 @@ export function setupSocketIO(io: SocketIOServer) {
           const { barcode, sessionId, authKey } = data;
           const cleanBarcode = barcode?.trim();
 
-          if (!cleanBarcode) {
-            if (callback) callback({ success: false, error: 'Empty barcode' });
+          if (!cleanBarcode || cleanBarcode.length < 3 || !/^[\x20-\x7E]+$/.test(cleanBarcode)) {
+            if (callback) callback({ success: false, error: 'Invalid barcode' });
             return;
           }
 

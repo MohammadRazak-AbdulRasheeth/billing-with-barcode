@@ -119,15 +119,15 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
     const is25x10 = sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap';
 
     // Calculate barcode bar height dynamically based on user-chosen barcodeHeightMm
-    // Calculate standard barcode bar height in dots for 203 DPI thermal printing
+    // For 25x10mm stickers: use calibrated bar height without vertical margins so barcode expands to full sticker width
     const calculatedBarHeight = is25x10
-      ? Math.max(28, Math.min(48, Math.round(barcodeHeightMm * 4.5)))
+      ? Math.max(50, Math.min(68, Math.round(barcodeHeightMm * 7.5)))
       : Math.max(35, Math.min(80, Math.round(barcodeHeightMm * 4)));
 
-    const barcodeQuietZone = is25x10 ? 12 : 8;
-    const barcodeFontSize = is25x10 ? 8 : 14;
-    const barcodeTextMargin = is25x10 ? 1 : 2;
-    const barcodeModuleWidth = is25x10 ? 1 : 2;
+    const barcodeQuietZoneX = is25x10 ? 10 : 8;
+    const barcodeFontSize = is25x10 ? 12 : 14;
+    const barcodeTextMargin = is25x10 ? 2 : 2;
+    const barcodeModuleWidth = 2;
 
     try {
       const svgNode = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -140,7 +140,10 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
         fontOptions: 'bold',
         font: 'monospace',
         textMargin: barcodeTextMargin,
-        margin: barcodeQuietZone, // Standard quiet zone (white space margins) mandatory for scanner recognition
+        marginTop: 0,
+        marginBottom: 0,
+        marginLeft: barcodeQuietZoneX,
+        marginRight: barcodeQuietZoneX,
         background: '#ffffff',
         lineColor: '#000000',
       });
@@ -160,7 +163,10 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
           fontOptions: 'bold',
           font: 'monospace',
           textMargin: barcodeTextMargin,
-          margin: barcodeQuietZone,
+          marginTop: 0,
+          marginBottom: 0,
+          marginLeft: barcodeQuietZoneX,
+          marginRight: barcodeQuietZoneX,
           background: '#ffffff',
           lineColor: '#000000',
         });
@@ -720,7 +726,6 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                 .tvs-barcode-img {
                   image-rendering: -webkit-optimize-contrast !important;
                   image-rendering: crisp-edges !important;
-                  image-rendering: pixelated !important;
                 }
               }
             `}</style>
@@ -809,7 +814,8 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                                 maxWidth: `calc(25mm - ${stickerMarginX * 2}mm)`,
                                 maxHeight: `${showProductName ? Math.min(barcodeHeightMm, 7.8) : barcodeHeightMm}mm`,
                                 height: 'auto',
-                                width: 'auto',
+                                width: '100%',
+                                objectFit: 'contain',
                                 display: 'block',
                                 margin: '0 auto',
                               }}
@@ -906,7 +912,8 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                                 maxWidth: `calc(25mm - ${stickerMarginX * 2}mm)`,
                                 maxHeight: `${showProductName ? Math.min(barcodeHeightMm, 7.8) : barcodeHeightMm}mm`,
                                 height: 'auto',
-                                width: 'auto',
+                                width: '100%',
+                                objectFit: 'contain',
                                 display: 'block',
                                 margin: '0 auto',
                               }}

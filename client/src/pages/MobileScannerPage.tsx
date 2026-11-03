@@ -33,16 +33,26 @@ import {
 import { socket } from '../services/socket';
 import { playBeepSuccess, playBeepError, triggerHaptic } from '../utils/audio';
 
+// Standard GS1 EAN-13 modulo-10 checksum validator
+function isValidEAN13(code: string): boolean {
+  if (!/^\d{13}$/.test(code)) return false;
+  let sum = 0;
+  for (let i = 0; i < 12; i++) {
+    sum += parseInt(code[i], 10) * (i % 2 === 0 ? 1 : 3);
+  }
+  const checksum = (10 - (sum % 10)) % 10;
+  return checksum === parseInt(code[12], 10);
+}
+
 // Pre-configure high-performance ZXing MultiFormatReader (EAN-13, Code 128, QR, UPC)
+// Excludes error-prone formats like unchecksummed ITF and Code 39 that cause false positive scans on noise/textures
 const zxingHints = new Map<DecodeHintType, any>();
 zxingHints.set(DecodeHintType.POSSIBLE_FORMATS, [
   BarcodeFormat.EAN_13,
   BarcodeFormat.CODE_128,
   BarcodeFormat.UPC_A,
   BarcodeFormat.UPC_E,
-  BarcodeFormat.CODE_39,
   BarcodeFormat.EAN_8,
-  BarcodeFormat.ITF,
   BarcodeFormat.QR_CODE,
 ]);
 zxingHints.set(DecodeHintType.TRY_HARDER, true);
@@ -113,6 +123,7 @@ export const MobileScannerPage: React.FC = () => {
   const isHardwareZoomActiveRef = useRef<boolean>(false);
   const lastScannedTimeRef = useRef<number>(0);
   const lastScannedCodeRef = useRef<string>('');
+  const candidateScanRef = useRef<{ code: string; count: number; lastTime: number } | null>(null);
   const pairedSessionRef = useRef<PairedSession | null>(pairedSession);
 
   useEffect(() => {
@@ -378,6 +389,7 @@ export const MobileScannerPage: React.FC = () => {
   };
 
   const stopCamera = () => {
+    candidateScanRef.current = null;
     if (scanIntervalRef.current) {
       clearInterval(scanIntervalRef.current);
       scanIntervalRef.current = null;
@@ -402,6 +414,7 @@ export const MobileScannerPage: React.FC = () => {
   };
 
   const togglePause = () => {
+    candidateScanRef.current = null;
     if (isPaused) {
       if (videoRef.current) videoRef.current.play();
       setIsPaused(false);
@@ -472,7 +485,7 @@ export const MobileScannerPage: React.FC = () => {
             supported = await BarcodeDetectorClass.getSupportedFormats();
           } catch {}
         }
-        const preferred = ['ean_13', 'code_128', 'upc_a', 'upc_e', 'ean_8', 'code_39', 'qr_code', 'itf'];
+        const preferred = ['ean_13', 'code_128', 'upc_a', 'upc_e', 'ean_8', 'qr_code'];
         const formats = supported.length > 0 ? preferred.filter((f) => supported.includes(f)) : preferred;
         if (formats.length > 0) {
           nativeDetector = new BarcodeDetectorClass({ formats });
@@ -530,9 +543,13 @@ export const MobileScannerPage: React.FC = () => {
         // Disable smoothing to prevent blurring single-pixel 1D barcode lines
         ctx.imageSmoothingEnabled = false;
 
-        // Boost contrast and brightness for thermal paper barcode clarity
+        // Alternate contrast enhancement every other frame so both digital screens (PDFs/monitors) and paper labels decode seamlessly
         try {
-          ctx.filter = 'contrast(1.3) brightness(1.05)';
+          if (frameCountRef.current % 2 === 0) {
+            ctx.filter = 'none';
+          } else {
+            ctx.filter = 'contrast(1.2)';
+          }
         } catch {}
 
         ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
@@ -549,16 +566,6 @@ export const MobileScannerPage: React.FC = () => {
               decodedText = barcodes[0].rawValue;
             }
           } catch {}
-
-          // Fallback to full frame every 3rd frame if zoomed ROI didn't catch an off-center item
-          if (!decodedText && frameCountRef.current % 3 === 0) {
-            try {
-              const fullBarcodes = await nativeDetector.detect(video);
-              if (fullBarcodes && fullBarcodes.length > 0 && fullBarcodes[0].rawValue) {
-                decodedText = fullBarcodes[0].rawValue;
-              }
-            } catch {}
-          }
         }
 
         // -------------------------------------------------------------
@@ -604,7 +611,49 @@ export const MobileScannerPage: React.FC = () => {
         }
 
         if (decodedText) {
-          handleBarcodeDetected(decodedText);
+          const trimmed = decodedText.trim();
+          // 1. Fast-track pairing QR codes (they contain Reed-Solomon 2D error correction)
+          if (trimmed.includes('session=') && trimmed.includes('key=')) {
+            candidateScanRef.current = null;
+            handleBarcodeDetected(trimmed);
+          } else {
+            // 2. Retail barcode validation & verification
+            // Barcode must be at least 4 characters, printable ASCII, not repeated character noise
+            const isPlausibleRetailBarcode =
+              trimmed.length >= 4 &&
+              /^[\x20-\x7E]+$/.test(trimmed) &&
+              !/^(.)\1+$/.test(trimmed);
+
+            if (isPlausibleRetailBarcode) {
+              // Mathematical GS1 verification:
+              // Valid GS1 EAN-13 barcodes with correct modulo-10 checksum are 100% genuine products
+              // (cannot be produced by optical noise). Fast-track them immediately!
+              const isVerifiedEAN = isValidEAN13(trimmed);
+
+              if (isVerifiedEAN) {
+                candidateScanRef.current = null;
+                handleBarcodeDetected(trimmed);
+              } else {
+                // For Code 128 and other formats, require 2 matching frames within 600ms
+                const now = Date.now();
+                const candidate = candidateScanRef.current;
+                if (candidate && candidate.code === trimmed && now - candidate.lastTime < 600) {
+                  candidate.count++;
+                  candidate.lastTime = now;
+                  if (candidate.count >= 2) {
+                    candidateScanRef.current = null;
+                    handleBarcodeDetected(trimmed);
+                  }
+                } else {
+                  candidateScanRef.current = {
+                    code: trimmed,
+                    count: 1,
+                    lastTime: now,
+                  };
+                }
+              }
+            }
+          }
         }
       } catch (err) {
         // Ignore unrecognised frame
@@ -666,7 +715,7 @@ export const MobileScannerPage: React.FC = () => {
     }
 
     const now = Date.now();
-    if (code === lastScannedCodeRef.current && now - lastScannedTimeRef.current < 900) {
+    if (code === lastScannedCodeRef.current && now - lastScannedTimeRef.current < 1200) {
       return;
     }
 
@@ -695,6 +744,8 @@ export const MobileScannerPage: React.FC = () => {
             timestamp: new Date().toLocaleTimeString(),
           });
         } else {
+          // Extra cooldown so moving the camera away does not repeatedly re-trigger error on the same code
+          lastScannedTimeRef.current = Date.now() + 600;
           if (soundEnabled) playBeepError();
           triggerHaptic('error');
           setLastScanned({
