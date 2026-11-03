@@ -217,16 +217,32 @@ export const MobileScannerPage: React.FC = () => {
       if (mediaStreamRef.current) {
         const track = mediaStreamRef.current.getVideoTracks()[0];
         const capabilities = (track as any).getCapabilities?.();
-        if (capabilities?.focusMode?.includes('continuous')) {
-          await (track as any).applyConstraints({
-            advanced: [{ focusMode: 'continuous' }],
-          });
+        if (capabilities?.focusMode) {
+          // If supported, cycle single-shot -> continuous to trigger hardware optical refocus
+          if (capabilities.focusMode.includes('single-shot')) {
+            await (track as any).applyConstraints({
+              advanced: [{ focusMode: 'single-shot' }],
+            });
+            setTimeout(async () => {
+              try {
+                if (track.readyState === 'live' && capabilities.focusMode.includes('continuous')) {
+                  await (track as any).applyConstraints({
+                    advanced: [{ focusMode: 'continuous' }],
+                  });
+                }
+              } catch {}
+            }, 300);
+          } else if (capabilities.focusMode.includes('continuous')) {
+            await (track as any).applyConstraints({
+              advanced: [{ focusMode: 'continuous' }],
+            });
+          }
         }
       }
     } catch {}
   };
 
-  const handleTapToFocus = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleTapToFocus = async (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -236,6 +252,26 @@ export const MobileScannerPage: React.FC = () => {
     focusTimeoutRef.current = window.setTimeout(() => {
       setFocusIndicator(null);
     }, 900);
+
+    try {
+      if (mediaStreamRef.current) {
+        const track = mediaStreamRef.current.getVideoTracks()[0];
+        const capabilities = (track as any).getCapabilities?.();
+        const normX = Math.max(0, Math.min(1, x / rect.width));
+        const normY = Math.max(0, Math.min(1, y / rect.height));
+
+        const advancedObj: any = {};
+        if (capabilities?.focusMode?.includes('continuous')) {
+          advancedObj.focusMode = 'continuous';
+        }
+        if (capabilities?.pointsOfInterest) {
+          advancedObj.pointsOfInterest = [{ x: normX, y: normY }];
+        }
+        if (Object.keys(advancedObj).length > 0) {
+          await (track as any).applyConstraints({ advanced: [advancedObj] });
+        }
+      }
+    } catch {}
 
     triggerAutoFocus();
     triggerHaptic('success');
@@ -482,9 +518,9 @@ export const MobileScannerPage: React.FC = () => {
         const cropX = Math.max(0, Math.round((vw - cropW) / 2));
         const cropY = Math.max(0, Math.round((vh - cropH) / 2));
 
-        // Preserve native sensor resolution without shrinking down
-        const targetW = Math.min(cropW, 960);
-        const targetH = Math.min(cropH, 600);
+        // Preserve native 1:1 sensor resolution without downscaling (prevents dropped or dithered 1D barcode lines)
+        const targetW = cropW;
+        const targetH = cropH;
 
         if (offscreenCanvas.width !== targetW || offscreenCanvas.height !== targetH) {
           offscreenCanvas.width = targetW;
@@ -531,7 +567,15 @@ export const MobileScannerPage: React.FC = () => {
         if (!decodedText) {
           try {
             const imgData = ctx.getImageData(0, 0, targetW, targetH);
-            const lumSource = new RGBLuminanceSource(imgData.data, targetW, targetH);
+            const raw = imgData.data;
+            const totalPixels = targetW * targetH;
+            const gray = new Uint8ClampedArray(totalPixels);
+            for (let i = 0, j = 0; i < raw.length; i += 4, j++) {
+              // Standard ITU-R BT.601 fast integer luminance calculation
+              gray[j] = (raw[i] * 77 + raw[i + 1] * 150 + raw[i + 2] * 29) >> 8;
+            }
+
+            const lumSource = new RGBLuminanceSource(gray, targetW, targetH);
 
             // Pass 2A: HybridBinarizer (adaptive local thresholding)
             try {
@@ -1107,7 +1151,7 @@ export const MobileScannerPage: React.FC = () => {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {[1, 1.5, 2, 3].map((z) => (
+            {[1, 1.5, 2, 2.5, 3].map((z) => (
               <button
                 key={z}
                 onClick={(e) => {

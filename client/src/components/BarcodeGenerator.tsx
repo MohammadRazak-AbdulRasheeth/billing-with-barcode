@@ -121,13 +121,13 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
     // Calculate barcode bar height dynamically based on user-chosen barcodeHeightMm
     // Calculate standard barcode bar height in dots for 203 DPI thermal printing
     const calculatedBarHeight = is25x10
-      ? Math.max(18, Math.min(38, Math.round(barcodeHeightMm * 4)))
+      ? Math.max(28, Math.min(48, Math.round(barcodeHeightMm * 4.5)))
       : Math.max(35, Math.min(80, Math.round(barcodeHeightMm * 4)));
 
-    const barcodeQuietZone = is25x10 ? 3 : 8;
-    const barcodeFontSize = is25x10 ? 10 : 14;
+    const barcodeQuietZone = is25x10 ? 12 : 8;
+    const barcodeFontSize = is25x10 ? 8 : 14;
     const barcodeTextMargin = is25x10 ? 1 : 2;
-    const barcodeModuleWidth = is25x10 ? 1.5 : 2;
+    const barcodeModuleWidth = is25x10 ? 1 : 2;
 
     try {
       const svgNode = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -179,7 +179,7 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
     setSheetFormat(fmt);
     if (fmt === 'thermal_25x10_quad' || fmt === 'thermal_25x10_quad_gap') {
       setLabelCount(40);
-      setBarcodeHeightMm(7);
+      setBarcodeHeightMm(7.5);
       setStickerMarginX(1);
     } else if (fmt === 'thermal_35x22_triple' || fmt === 'thermal_35x22_triple_compact') {
       setLabelCount(30);
@@ -505,7 +505,7 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
               alignItems: 'center',
               justifyContent: 'space-between',
               width: '100%',
-              maxWidth: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap') ? '200px' : sheetFormat.includes('35x22') ? '220px' : '260px',
+              maxWidth: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap') ? '270px' : sheetFormat.includes('35x22') ? '280px' : '300px',
               marginBottom: '0.85rem',
             }}
           >
@@ -548,24 +548,24 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
               background: '#ffffff',
               color: '#000000',
               padding: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap')
-                ? `6px ${Math.max(4, stickerMarginX * 4)}px`
+                ? '8px 14px'
                 : sheetFormat.includes('35x22')
-                ? `10px ${Math.max(6, stickerMarginX * 5)}px`
+                ? '10px 14px'
                 : '12px 14px',
               borderRadius: '6px',
               boxShadow: '0 12px 35px rgba(0, 0, 0, 0.45)',
               textAlign: 'center',
               width: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap')
-                ? '190px'
+                ? '260px'
                 : sheetFormat.includes('35x22')
-                ? '210px'
+                ? '270px'
                 : sheetFormat.startsWith('thermal')
-                ? '240px'
-                : '260px',
+                ? '270px'
+                : '280px',
               minHeight: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap')
-                ? '76px'
+                ? '104px'
                 : sheetFormat.includes('35x22')
-                ? '132px'
+                ? '145px'
                 : 'auto',
               border: '1px solid #cbd5e1',
               display: 'flex',
@@ -578,9 +578,9 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
             {showProductName && (
               <div
                 style={{
-                  fontSize: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap') ? '8.5px' : '11px',
+                  fontSize: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap') ? '9.5px' : '11px',
                   fontWeight: 700,
-                  marginBottom: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap') ? '2px' : '4px',
+                  marginBottom: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap') ? '3px' : '4px',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
@@ -592,17 +592,17 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
             )}
 
             {barcodeImageDataUrl ? (
-              <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0', width: '100%' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '4px 0', width: '100%' }}>
                 <img
                   src={barcodeImageDataUrl}
                   alt="Barcode Preview"
                   style={{
                     maxWidth: '100%',
-                    maxHeight: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap') ? '48px' : '85px',
+                    maxHeight: (sheetFormat === 'thermal_25x10_quad' || sheetFormat === 'thermal_25x10_quad_gap') ? '68px' : '90px',
                     height: 'auto',
                     width: 'auto',
                     display: 'block',
-                    imageRendering: 'crisp-edges',
+                    imageRendering: 'pixelated',
                   }}
                 />
               </div>
@@ -622,6 +622,28 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
               </div>
             )}
           </div>
+
+          {/* Scannable Indicator */}
+          {barcodeImageDataUrl && (
+            <div
+              style={{
+                marginTop: '0.85rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '4px 10px',
+                borderRadius: '9999px',
+                background: 'rgba(16, 185, 129, 0.12)',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                color: '#34d399',
+                fontSize: '0.72rem',
+                fontWeight: 600,
+              }}
+            >
+              <Check size={12} />
+              <span>Preview Scannable (Point phone camera or scanner gun)</span>
+            </div>
+          )}
 
           <div
             style={{
@@ -763,13 +785,13 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                           {showProductName && (
                             <div
                               style={{
-                                fontSize: '6.5px',
+                                fontSize: '6px',
                                 fontWeight: 700,
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap',
                                 maxWidth: `calc(25mm - ${stickerMarginX * 2}mm)`,
-                                margin: '0 0 0.1mm 0',
+                                margin: '0 0 0.15mm 0',
                                 color: '#000000',
                                 lineHeight: 1.0,
                               }}
@@ -785,7 +807,7 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                               className="tvs-barcode-img"
                               style={{
                                 maxWidth: `calc(25mm - ${stickerMarginX * 2}mm)`,
-                                maxHeight: `${barcodeHeightMm}mm`,
+                                maxHeight: `${showProductName ? Math.min(barcodeHeightMm, 7.8) : barcodeHeightMm}mm`,
                                 height: 'auto',
                                 width: 'auto',
                                 display: 'block',
@@ -860,13 +882,13 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                           {showProductName && (
                             <div
                               style={{
-                                fontSize: '6.5px',
+                                fontSize: '6px',
                                 fontWeight: 700,
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap',
                                 maxWidth: `calc(25mm - ${stickerMarginX * 2}mm)`,
-                                margin: '0 0 0.1mm 0',
+                                margin: '0 0 0.15mm 0',
                                 color: '#000000',
                                 lineHeight: 1.0,
                               }}
@@ -882,7 +904,7 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
                               className="tvs-barcode-img"
                               style={{
                                 maxWidth: `calc(25mm - ${stickerMarginX * 2}mm)`,
-                                maxHeight: `${barcodeHeightMm}mm`,
+                                maxHeight: `${showProductName ? Math.min(barcodeHeightMm, 7.8) : barcodeHeightMm}mm`,
                                 height: 'auto',
                                 width: 'auto',
                                 display: 'block',
