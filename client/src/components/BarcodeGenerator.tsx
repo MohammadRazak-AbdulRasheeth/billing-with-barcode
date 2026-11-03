@@ -185,24 +185,37 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
     setSheetFormat(fmt);
     if (fmt === 'thermal_25x10_quad' || fmt === 'thermal_25x10_quad_gap') {
       setLabelCount(40);
-      setBarcodeHeightMm(7.5);
-      setStickerMarginX(1);
+      setBarcodeHeightMm(8.5);
+      setStickerMarginX(0.5);
+      setShowProductName(false); // Omit title on 25x10mm so barcode has full height for 100% physical & mobile scan recognition
     } else if (fmt === 'thermal_35x22_triple' || fmt === 'thermal_35x22_triple_compact') {
       setLabelCount(30);
       setBarcodeHeightMm(16.5);
       setStickerMarginX(2);
+      setShowProductName(true);
     } else if (fmt === 'thermal_35x22_dual') {
       setLabelCount(20);
       setBarcodeHeightMm(16.5);
       setStickerMarginX(2);
+      setShowProductName(true);
     } else if (fmt === 'thermal_35x22') {
       setLabelCount(10);
       setBarcodeHeightMm(16.5);
       setStickerMarginX(2);
-    } else if (fmt === 'a4_24') setLabelCount(24);
-    else if (fmt === 'a4_40') setLabelCount(40);
-    else if (fmt === 'a4_65') setLabelCount(65);
-    else if (fmt === 'thermal_50x30' || fmt === 'thermal_38x25') setLabelCount(10);
+      setShowProductName(true);
+    } else if (fmt === 'a4_24') {
+      setLabelCount(24);
+      setShowProductName(true);
+    } else if (fmt === 'a4_40') {
+      setLabelCount(40);
+      setShowProductName(true);
+    } else if (fmt === 'a4_65') {
+      setLabelCount(65);
+      setShowProductName(true);
+    } else if (fmt === 'thermal_50x30' || fmt === 'thermal_38x25') {
+      setLabelCount(10);
+      setShowProductName(true);
+    }
   };
 
   // Print Barcode Stickers via print-portal
@@ -668,11 +681,10 @@ export const BarcodeGenerator: React.FC<BarcodeGeneratorProps> = ({
             <div style={{ color: '#60a5fa', fontWeight: 700, marginBottom: '4px' }}>
               🖨️ {sheetFormat.includes('25x10') ? '25×10mm 4-Up Print Calibration:' : 'TVS LP 46 DLITE Print Calibration:'}
             </div>
-            • <strong>Printer</strong>: {sheetFormat.includes('25x10') ? 'Thermal Barcode Printer (203 DPI)' : 'TVS LP 46 Dlite (203 DPI)'}<br />
-            • <strong>Roll Layout</strong>: {sheetFormat === 'thermal_25x10_quad' ? '1 Row with 4 Stickers (100×10mm Roll, 4 × 25×10mm Stickers)' : sheetFormat === 'thermal_25x10_quad_gap' ? '1 Row with 4 Stickers (104×10mm Roll with 1mm Gap)' : '1 Row with 3 Stickers (105×22mm Roll, 3 × 35×22mm Stickers)'}<br />
-            • <strong>Barcode Height</strong>: {barcodeHeightMm}mm<br />
-            • <strong>Sticker Margins</strong>: {stickerMarginX}mm Left & Right per sticker<br />
-            • <strong>Driver Paper Size</strong>: {sheetFormat === 'thermal_25x10_quad' ? '100×10mm (or 4-Up 25×10 on 100mm Width)' : sheetFormat === 'thermal_25x10_quad_gap' ? '104×10mm (or 4-Up 25×10 on 104mm Width)' : '105×22mm (or 3-Up 35×22 on 105mm Width)'}<br />
+            • <strong>Printer</strong>: {sheetFormat.includes('25x10') ? 'Thermal Barcode Printer (203 DPI) / TVS LP 46 DLITE' : 'TVS LP 46 Dlite (203 DPI)'}<br />
+            • <strong>Recommended Roll</strong>: {sheetFormat === 'thermal_25x10_quad_gap' ? '104×10mm (4-Across with 1mm Gap) ★ Optimal for 25x10' : sheetFormat === 'thermal_25x10_quad' ? '100×10mm (4-Across Flush)' : '105×22mm (3-Across Roll)'}<br />
+            • <strong>Barcode Height</strong>: {barcodeHeightMm}mm {sheetFormat.includes('25x10') && !showProductName ? '(Full 8.5mm Barcode Height for 100% Laser Scan)' : ''}<br />
+            • <strong>Driver Paper Size</strong>: {sheetFormat === 'thermal_25x10_quad_gap' ? '104×10mm (User-defined in TVS driver)' : sheetFormat === 'thermal_25x10_quad' ? '100×10mm (User-defined in TVS driver)' : '105×22mm (3-Up 35x22 on 105mm)'}<br />
             • <strong>Margins</strong>: None (0mm)<br />
             • <strong>Scale</strong>: 100% (Default)<br />
             • <strong>Headers & Footers</strong>: Off
